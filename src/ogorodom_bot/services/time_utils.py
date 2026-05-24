@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -9,16 +10,37 @@ def utc_now() -> datetime:
 
 
 def parse_local_datetime(raw: str, timezone_name: str) -> datetime:
-    raw = raw.strip()
+    raw = _normalize_datetime_input(raw)
+    tz = ZoneInfo(timezone_name)
+    lowered = raw.lower()
+    for prefix, day_offset in (("сегодня ", 0), ("завтра ", 1)):
+        if lowered.startswith(prefix):
+            time_part = raw[len(prefix) :].strip()
+            parsed_time = _parse_time_flexible(time_part)
+            base = datetime.now(tz).date() + timedelta(days=day_offset)
+            local = datetime.combine(base, parsed_time, tzinfo=tz)
+            return local.astimezone(timezone.utc)
+
+    current_year = datetime.now(tz).year
+    if re.match(r"^\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}$", raw):
+        raw = f"{raw[: raw.index(' ')]}.{current_year}{raw[raw.index(' '):]}"
+
     if len(raw) == 10:
         raw = raw + " 09:00"
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%d.%m.%Y %H:%M"):
         try:
             local = datetime.strptime(raw, fmt)
-            return local.replace(tzinfo=ZoneInfo(timezone_name)).astimezone(timezone.utc)
+            return local.replace(tzinfo=tz).astimezone(timezone.utc)
         except ValueError:
             continue
     raise ValueError("date must be YYYY-MM-DD HH:MM")
+
+
+def format_local_datetime(raw: str | None, timezone_name: str) -> str:
+    if not raw:
+        return "без срока"
+    dt = parse_iso(raw)
+    return dt.astimezone(ZoneInfo(timezone_name)).strftime("%d.%m.%Y %H:%M")
 
 
 def iso(dt: datetime) -> str:
@@ -75,6 +97,21 @@ def quiet_adjusted(send_at: datetime, quiet_start: str, quiet_end: str, tz_name:
 def _parse_time(raw: str) -> time:
     hour, minute = raw.split(":", 1)
     return time(int(hour), int(minute))
+
+
+def _parse_time_flexible(raw: str) -> time:
+    raw = raw.strip()
+    if not re.match(r"^\d{1,2}:\d{2}$", raw):
+        raise ValueError("time must be H:MM")
+    return _parse_time(raw)
+
+
+def _normalize_datetime_input(raw: str) -> str:
+    raw = raw.strip()
+    raw = raw.rstrip(".,; ")
+    raw = re.sub(r"\s+", " ", raw)
+    raw = raw.replace("T", " ")
+    return raw
 
 
 def _is_quiet(value: time, start: time, end: time) -> bool:

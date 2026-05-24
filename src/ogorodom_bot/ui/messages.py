@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ogorodom_bot.services.time_utils import format_local_datetime
+
 
 REPEAT_LABELS = {
     "none": "без повтора",
@@ -18,22 +20,22 @@ def welcome() -> str:
     )
 
 
-def tasks_list(tasks: list[dict]) -> str:
+def tasks_list(tasks: list[dict], timezone_name: str) -> str:
     if not tasks:
         return "Открытых задач нет. Можно создать первую задачу кнопкой ниже."
     lines = ["Открытые задачи:"]
     for task in tasks:
-        due = task["due_at"] or "без срока"
+        due = format_local_datetime(task["due_at"], timezone_name)
         repeat = REPEAT_LABELS.get(task["repeat_rule"], task["repeat_rule"])
         lines.append(f"#{task['id']} {due}\n{task['title']}\nПовтор: {repeat}")
     return "\n\n".join(lines)
 
 
-def task_card(task: dict) -> str:
-    due = task["due_at"] or "без срока"
+def task_card(task: dict, timezone_name: str) -> str:
+    due = format_local_datetime(task["due_at"], timezone_name)
     repeat = REPEAT_LABELS.get(task["repeat_rule"], task["repeat_rule"])
     description = task["description"] or "нет"
-    remind = task["remind_at"] or "нет"
+    remind = format_local_datetime(task["remind_at"], timezone_name) if task["remind_at"] else "нет"
     return (
         f"Задача #{task['id']}\n"
         f"Название: {task['title']}\n"
@@ -44,12 +46,12 @@ def task_card(task: dict) -> str:
     )
 
 
-def task_confirmation(payload: dict) -> str:
+def task_confirmation(payload: dict, timezone_name: str) -> str:
     repeat = REPEAT_LABELS.get(payload.get("repeat_rule", "none"), "без повтора")
     return (
         "Проверьте задачу:\n"
         f"Название: {payload['title']}\n"
-        f"Срок: {payload['due_at']}\n"
+        f"Срок: {format_local_datetime(payload['due_at'], timezone_name)}\n"
         f"Повтор: {repeat}\n"
         f"Напоминание будет рассчитано по настройкам."
     )

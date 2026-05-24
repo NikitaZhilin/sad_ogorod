@@ -67,7 +67,7 @@ class BotHandlerTests(unittest.TestCase):
         tasks = self.bot.handle(self.message("/tasks"))
         done = self.bot.handle(self.message("/done 1"))
 
-        self.assertIn("Задача #1 создана", created)
+        self.assertIn("Задача #1 «Полить грядки» создана", created)
         self.assertIn("Полить грядки", tasks)
         self.assertIn("создан повтор #2", done)
 
@@ -145,7 +145,9 @@ class BotHandlerTests(unittest.TestCase):
         created = self.bot.handle_callback(self.callback("task:create"))
 
         self.assertIn("Полить теплицу", confirm.text)
-        self.assertIn("Задача #1 создана", created.text)
+        self.assertIn("25.05.2026 12:00", confirm.text)
+        self.assertNotIn("T09:00:00", confirm.text)
+        self.assertIn("Задача #1 «Полить теплицу» создана", created.text)
         with connect(self.app_state.db_path) as conn:
             state = DialogStateRepository(conn).get(1)
             tasks = TaskService(conn).list_open(1)

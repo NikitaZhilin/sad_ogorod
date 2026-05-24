@@ -16,7 +16,7 @@ from ogorodom_bot.services.dialogs import DialogStateService
 from ogorodom_bot.services.garden import GardenService
 from ogorodom_bot.services.startup_notifications import StartupNotificationService
 from ogorodom_bot.services.tasks import TaskService
-from ogorodom_bot.services.time_utils import iso, parse_local_datetime
+from ogorodom_bot.services.time_utils import format_local_datetime, iso, parse_local_datetime
 from ogorodom_bot.services.users import UserService
 from ogorodom_bot.telegram_api import TelegramApi
 from ogorodom_bot.ui import keyboards, messages
@@ -258,7 +258,10 @@ class BotApplication:
             if task is None:
                 return self._tasks_response(conn, user["id"], chat_id, edit_message_id=message_id)
             return BotResponse(
-                chat_id, messages.task_card(task), keyboards.task_details(task_id), message_id
+                chat_id,
+                messages.task_card(task, user["timezone"]),
+                keyboards.task_details(task_id),
+                message_id,
             )
         if data.startswith("task:done:"):
             task_id = int(data.rsplit(":", 1)[1])
@@ -273,7 +276,7 @@ class BotApplication:
             tasks = TaskService(conn).list_open(user["id"])
             return BotResponse(
                 chat_id,
-                text + "\n\n" + messages.tasks_list(tasks),
+                text + "\n\n" + messages.tasks_list(tasks, user["timezone"]),
                 keyboards.tasks_menu(tasks),
                 message_id,
             )
@@ -285,7 +288,11 @@ class BotApplication:
             payload = dict(dialog_state["payload"])
             payload["repeat_rule"] = repeat_rule
             dialog.set(user["id"], "task_wait_confirm", payload)
-            return BotResponse(chat_id, messages.task_confirmation(payload), keyboards.task_confirm())
+            return BotResponse(
+                chat_id,
+                messages.task_confirmation(payload, user["timezone"]),
+                keyboards.task_confirm(),
+            )
         if data == "task:create":
             dialog_state = dialog.get(user["id"])
             if not dialog_state or dialog_state["state"] != "task_wait_confirm":
@@ -303,7 +310,7 @@ class BotApplication:
             dialog.clear(user["id"])
             return BotResponse(
                 chat_id,
-                f"Задача #{task_id} создана.",
+                f"Задача #{task_id} «{payload['title']}» создана.",
                 keyboards.main_menu(),
                 callback_text="Задача создана",
             )
@@ -403,7 +410,7 @@ class BotApplication:
             dialog.set(user["id"], "task_wait_due_at", {"title": text})
             return BotResponse(
                 chat_id,
-                "Введите срок в формате YYYY-MM-DD HH:MM, например 2026-05-25 12:00.",
+                "Введите срок. Подойдут форматы: 2026-05-25 12:00, 25.05.2026 12:00, 25.05 12:00, сегодня 12:00, завтра 9:00.",
                 keyboards.cancel_inline(),
             )
         if state_name == "task_wait_due_at":
@@ -412,7 +419,7 @@ class BotApplication:
             except ValueError:
                 return BotResponse(
                     chat_id,
-                    "Не удалось разобрать дату. Используйте формат YYYY-MM-DD HH:MM.",
+                    "Не удалось разобрать дату. Пример: 2026-05-25 12:00 или 25.05.2026 12:00.",
                     keyboards.cancel_inline(),
                 )
             payload["due_at"] = due_at
@@ -492,8 +499,13 @@ class BotApplication:
         self, conn, user_id: int, chat_id: int, edit_message_id: int | None = None
     ) -> BotResponse:
         tasks = TaskService(conn).list_open(user_id)
+        user = conn.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()
+        timezone_name = user["timezone"] if user else self.settings.default_timezone
         return BotResponse(
-            chat_id, messages.tasks_list(tasks), keyboards.tasks_menu(tasks), edit_message_id
+            chat_id,
+            messages.tasks_list(tasks, timezone_name),
+            keyboards.tasks_menu(tasks),
+            edit_message_id,
         )
 
     def _journal_response(
@@ -537,15 +549,17 @@ class BotApplication:
             repeat_rule=repeat,
             remind_at=remind_at,
         )
-        return f"Задача #{task_id} создана"
+        return f"Задача #{task_id} «{title}» создана"
 
     def _list_tasks(self, conn, user_id: int) -> str:
         tasks = TaskService(conn).list_open(user_id)
         if not tasks:
             return "Открытых задач нет"
+        user = conn.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone()
+        timezone_name = user["timezone"] if user else self.settings.default_timezone
         lines = ["Открытые задачи:"]
         for task in tasks:
-            due = task["due_at"] or "без срока"
+            due = format_local_datetime(task["due_at"], timezone_name)
             repeat = "" if task["repeat_rule"] == "none" else f", {task['repeat_rule']}"
             lines.append(f"#{task['id']} {due} - {task['title']}{repeat}")
         return "\n".join(lines)
