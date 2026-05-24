@@ -66,6 +66,40 @@ class TaskService:
     def get_task(self, user_id: int, task_id: int) -> dict | None:
         return self.tasks.get(task_id, user_id)
 
+    def update_title(self, user_id: int, task_id: int, title: str) -> None:
+        task = self.tasks.get(task_id, user_id)
+        if task is None:
+            raise ValueError("task not found")
+        title = title.strip()
+        if not title:
+            raise ValueError("task title is required")
+        self.tasks.update_task(task_id, user_id, title=title)
+        self.journal.create(user_id, "task_updated", f"Изменено название задачи: {title}", "task", task_id)
+
+    def update_due_at(self, user_id: int, task_id: int, due_at: str | None) -> None:
+        task = self.tasks.get(task_id, user_id)
+        if task is None:
+            raise ValueError("task not found")
+        remind_at = self.default_remind_at(user_id, due_at) if due_at else None
+        self.tasks.update_task(
+            task_id,
+            user_id,
+            due_at=due_at,
+            remind_at=remind_at,
+            clear_due=due_at is None,
+        )
+        note_due = due_at or "без срока"
+        self.journal.create(user_id, "task_updated", f"Изменен срок задачи: {task['title']} -> {note_due}", "task", task_id)
+
+    def update_repeat_rule(self, user_id: int, task_id: int, repeat_rule: str) -> None:
+        task = self.tasks.get(task_id, user_id)
+        if task is None:
+            raise ValueError("task not found")
+        if repeat_rule not in VALID_REPEAT_RULES:
+            raise ValueError("repeat_rule must be none, daily, weekly, monthly or yearly")
+        self.tasks.update_task(task_id, user_id, repeat_rule=repeat_rule)
+        self.journal.create(user_id, "task_updated", f"Изменен повтор задачи: {task['title']}", "task", task_id)
+
     def complete_task(self, user_id: int, task_id: int) -> int | None:
         task = self.tasks.get(task_id, user_id)
         if task is None:

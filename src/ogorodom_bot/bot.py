@@ -4,7 +4,9 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ogorodom_bot.config import Settings
 from ogorodom_bot.db.connection import connect
@@ -32,31 +34,32 @@ from ogorodom_bot.ui import keyboards, messages
 logger = logging.getLogger(__name__)
 
 
-HELP = """Огородом:
-/task YYYY-MM-DD HH:MM | название | repeat=none|daily|weekly|monthly|yearly
-/tasks - открытые задачи
-/done ID - закрыть задачу
-/today - задачи на сегодня
-/pause - выключить уведомления
-/resume - включить уведомления
-/water [текст] - записать полив
-/mow [текст] - записать покос
-/treat [текст] [wait=3] - записать обработку
-/log [текст] - добавить запись журнала
-/delete_me - удалить мои данные с подтверждением
-/plot название - добавить участок
-/plots - список участков
-/zone название - добавить зону
-/zones - список зон
-/planting название | сорт | YYYY-MM-DD - добавить посадку
-/plantings - список посадок
-/journal - последние записи
-/settings quiet 22:00 08:00
-/settings notify on|off
-/backup - сделать backup SQLite
-/diag - диагностика"""
+HELP = """Огородом
 
-MAIN_BUTTONS = {"Сегодня", "Задачи", "Огород", "Журнал", "Настройки", "Помощь"}
+Основной режим - кнопки внизу:
+Сегодня - ближайшие дела.
+Новая задача - добавить задачу без команды.
+Все задачи - список и действия по задачам.
+Огород - участки, зоны и посадки.
+Журнал - записи работ.
+Настройки - уведомления и тихие часы.
+
+Команды тоже работают:
+/today, /task, /tasks, /done, /water, /mow, /treat, /log, /pause, /resume.
+
+Служебные команды:
+/backup, /diag, /delete_me."""
+
+MAIN_BUTTONS = {
+    "Сегодня",
+    "Новая задача",
+    "Все задачи",
+    "Задачи",
+    "Огород",
+    "Журнал",
+    "Настройки",
+    "Помощь",
+}
 TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 
 
@@ -163,7 +166,9 @@ class BotApplication:
             if state and text in MAIN_BUTTONS:
                 dialog.clear(user["id"])
 
-            if text == "Задачи":
+            if text == "Новая задача":
+                return self._start_task_dialog(conn, user["id"], message.chat_id)
+            if text in {"Задачи", "Все задачи"}:
                 return self._tasks_response(conn, user["id"], message.chat_id)
             if text == "Сегодня":
                 return self._today_response(conn, user, message.chat_id)
@@ -305,13 +310,9 @@ class BotApplication:
         if data == "journal:refresh":
             return self._journal_response(conn, user["id"], chat_id, edit_message_id=message_id)
         if data == "tasks:new":
-            dialog.set(user["id"], "task_wait_title", {})
-            return BotResponse(
-                chat_id,
-                "Введите название задачи.",
-                keyboards.cancel_inline(),
-                callback_text="Введите название",
-            )
+            response = self._start_task_dialog(conn, user["id"], chat_id)
+            response.callback_text = "Введите название"
+            return response
         if data.startswith("task:details:"):
             task_id = int(data.rsplit(":", 1)[1])
             task = TaskService(conn).get_task(user["id"], task_id)
@@ -323,6 +324,73 @@ class BotApplication:
                 keyboards.task_details(task_id),
                 message_id,
             )
+        if data.startswith("task:edit:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            task = TaskService(conn).get_task(user["id"], task_id)
+            if task is None:
+                return self._tasks_response(conn, user["id"], chat_id, edit_message_id=message_id)
+            return BotResponse(
+                chat_id,
+                f"Что изменить в задаче #{task_id}?\n{task['title']}",
+                keyboards.task_edit_menu(task_id),
+                message_id,
+            )
+        if data.startswith("task:edit_title:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "task_edit_title", {"task_id": task_id})
+            return BotResponse(chat_id, "Введите новое название задачи.", keyboards.cancel_inline())
+        if data.startswith("task:edit_due:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "task_edit_due_at", {"task_id": task_id})
+            return BotResponse(
+                chat_id,
+                "Выберите новый срок или введите дату сообщением.",
+                keyboards.task_due_menu(),
+            )
+        if data.startswith("task:edit_repeat:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            return BotResponse(chat_id, "Выберите новый повтор задачи.", keyboards.edit_repeat_menu(task_id), message_id)
+        if data.startswith("task:er:"):
+            _, _, task_raw, repeat_rule = data.split(":", 3)
+            task_id = int(task_raw)
+            try:
+                TaskService(conn).update_repeat_rule(user["id"], task_id, repeat_rule)
+            except ValueError:
+                return BotResponse(chat_id, "Задача не найдена.", keyboards.main_menu())
+            task = TaskService(conn).get_task(user["id"], task_id)
+            return BotResponse(
+                chat_id,
+                messages.task_card(task, user["timezone"]) if task else "Повтор обновлен.",
+                keyboards.task_details(task_id),
+                message_id,
+                callback_text="Повтор обновлен",
+            )
+        if data.startswith("task:due:"):
+            option = data.rsplit(":", 1)[1]
+            dialog_state = dialog.get(user["id"])
+            if not dialog_state or dialog_state["state"] not in {"task_wait_due_at", "task_edit_due_at"}:
+                return BotResponse(chat_id, "Диалог задачи не найден.", keyboards.main_menu())
+            if option == "custom":
+                return BotResponse(chat_id, "Введите дату сообщением. Например: завтра 9:00 или 25.05.2026 12:00.", keyboards.cancel_inline())
+            due_at = _due_at_from_option(option, user["timezone"])
+            payload = dict(dialog_state["payload"])
+            if dialog_state["state"] == "task_edit_due_at":
+                TaskService(conn).update_due_at(user["id"], int(payload["task_id"]), due_at)
+                dialog.clear(user["id"])
+                task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
+                return BotResponse(
+                    chat_id,
+                    messages.task_card(task, user["timezone"]) if task else "Срок обновлен.",
+                    keyboards.task_details(int(payload["task_id"])),
+                    callback_text="Срок обновлен",
+                )
+            payload["due_at"] = due_at
+            if due_at is None:
+                payload["repeat_rule"] = "none"
+                dialog.set(user["id"], "task_wait_confirm", payload)
+                return BotResponse(chat_id, messages.task_confirmation(payload, user["timezone"]), keyboards.task_confirm())
+            dialog.set(user["id"], "task_wait_repeat", payload)
+            return BotResponse(chat_id, "Нужен повтор?", keyboards.repeat_menu())
         if data.startswith("task:done:"):
             task_id = int(data.rsplit(":", 1)[1])
             try:
@@ -399,11 +467,15 @@ class BotApplication:
                 return BotResponse(chat_id, "Диалог создания задачи не найден.", keyboards.main_menu())
             payload = dialog_state["payload"]
             service = TaskService(conn)
-            remind_at = service.default_remind_at(user["id"], payload["due_at"])
+            remind_at = (
+                service.default_remind_at(user["id"], payload["due_at"])
+                if payload.get("due_at")
+                else None
+            )
             task_id = service.create_task(
                 user_id=user["id"],
                 title=payload["title"],
-                due_at=payload["due_at"],
+                due_at=payload.get("due_at"),
                 repeat_rule=payload.get("repeat_rule", "none"),
                 remind_at=remind_at,
             )
@@ -525,8 +597,8 @@ class BotApplication:
             dialog.set(user["id"], "task_wait_due_at", {"title": text})
             return BotResponse(
                 chat_id,
-                "Введите срок. Подойдут форматы: 2026-05-25 12:00, 25.05.2026 12:00, 25.05 12:00, сегодня 12:00, завтра 9:00.",
-                keyboards.cancel_inline(),
+                "Когда нужно сделать задачу?\n\nМожно выбрать кнопку или написать дату: завтра 9:00, 25.05 12:00, 2026-05-25 12:00.",
+                keyboards.task_due_menu(),
             )
         if state_name == "task_wait_due_at":
             try:
@@ -534,12 +606,41 @@ class BotApplication:
             except ValueError:
                 return BotResponse(
                     chat_id,
-                    "Не удалось разобрать дату. Пример: 2026-05-25 12:00 или 25.05.2026 12:00.",
-                    keyboards.cancel_inline(),
+                    "Не удалось разобрать дату.\n\nПопробуйте так: завтра 9:00, 25.05 12:00 или 2026-05-25 12:00.",
+                    keyboards.task_due_menu(),
                 )
             payload["due_at"] = due_at
             dialog.set(user["id"], "task_wait_repeat", payload)
-            return BotResponse(chat_id, "Выберите повтор задачи.", keyboards.repeat_menu())
+            return BotResponse(chat_id, "Нужен повтор?", keyboards.repeat_menu())
+        if state_name == "task_edit_title":
+            try:
+                TaskService(conn).update_title(user["id"], int(payload["task_id"]), text)
+            except ValueError:
+                return BotResponse(chat_id, "Введите непустое название задачи.", keyboards.cancel_inline())
+            dialog.clear(user["id"])
+            task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
+            return BotResponse(
+                chat_id,
+                messages.task_card(task, user["timezone"]) if task else "Название обновлено.",
+                keyboards.task_details(int(payload["task_id"])),
+            )
+        if state_name == "task_edit_due_at":
+            try:
+                due_at = iso(parse_local_datetime(text, user["timezone"]))
+            except ValueError:
+                return BotResponse(
+                    chat_id,
+                    "Не удалось разобрать дату.\n\nПопробуйте так: завтра 9:00, 25.05 12:00 или 2026-05-25 12:00.",
+                    keyboards.task_due_menu(),
+                )
+            TaskService(conn).update_due_at(user["id"], int(payload["task_id"]), due_at)
+            dialog.clear(user["id"])
+            task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
+            return BotResponse(
+                chat_id,
+                messages.task_card(task, user["timezone"]) if task else "Срок обновлен.",
+                keyboards.task_details(int(payload["task_id"])),
+            )
         if state_name == "task_wait_snooze_at":
             try:
                 due_at = iso(parse_local_datetime(text, user["timezone"]))
@@ -668,6 +769,14 @@ class BotApplication:
             messages.tasks_list(tasks, timezone_name),
             keyboards.tasks_menu(tasks),
             edit_message_id,
+        )
+
+    def _start_task_dialog(self, conn, user_id: int, chat_id: int) -> BotResponse:
+        DialogStateService(conn).set(user_id, "task_wait_title", {})
+        return BotResponse(
+            chat_id,
+            "Новая задача\n\nНапишите короткое название. Например: Полить теплицу.",
+            keyboards.cancel_inline(),
         )
 
     def _today_response(
@@ -808,6 +917,25 @@ class BotApplication:
         if not rows:
             return f"{title}: пусто"
         return "\n".join([f"{title}:"] + [f"#{row['id']} {row['name']}" for row in rows])
+
+
+def _due_at_from_option(option: str, timezone_name: str) -> str | None:
+    if option == "none":
+        return None
+    tz = ZoneInfo(timezone_name)
+    now = datetime.now(tz).replace(second=0, microsecond=0)
+    if option == "today_evening":
+        target = datetime.combine(now.date(), dt_time(18, 0), tzinfo=tz)
+        if target <= now:
+            target = target + timedelta(days=1)
+        return iso(target.astimezone(timezone.utc))
+    if option == "tomorrow_morning":
+        target = datetime.combine(now.date() + timedelta(days=1), dt_time(9, 0), tzinfo=tz)
+        return iso(target.astimezone(timezone.utc))
+    if option == "tomorrow_evening":
+        target = datetime.combine(now.date() + timedelta(days=1), dt_time(18, 0), tzinfo=tz)
+        return iso(target.astimezone(timezone.utc))
+    raise ValueError("unsupported due option")
 
 
 def _valid_time(value: str) -> bool:

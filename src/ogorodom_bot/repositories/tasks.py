@@ -54,7 +54,7 @@ class TaskRepository(Repository):
         rows = self.conn.execute(
             """
             SELECT * FROM tasks
-            WHERE user_id = ? AND status IN ('open', 'active')
+            WHERE user_id = ? AND status IN ('open', 'active', 'snoozed')
             ORDER BY COALESCE(due_at, '9999-12-31T23:59:59'), id
             LIMIT ?
             """,
@@ -122,6 +122,42 @@ class TaskRepository(Repository):
             WHERE id = ? AND user_id = ?
             """,
             (status, due_at, skipped_reason, task_id, user_id),
+        )
+
+    def update_task(
+        self,
+        task_id: int,
+        user_id: int,
+        *,
+        title: str | None = None,
+        due_at: str | None = None,
+        repeat_rule: str | None = None,
+        remind_at: str | None = None,
+        clear_due: bool = False,
+    ) -> None:
+        assignments = ["updated_at = CURRENT_TIMESTAMP"]
+        values: list[object] = []
+        if title is not None:
+            assignments.append("title = ?")
+            values.append(title)
+        if clear_due:
+            assignments.extend(["due_at = NULL", "remind_at = NULL"])
+        elif due_at is not None:
+            assignments.append("due_at = ?")
+            values.append(due_at)
+            assignments.append("remind_at = ?")
+            values.append(remind_at)
+        if repeat_rule is not None:
+            assignments.append("repeat_rule = ?")
+            values.append(repeat_rule)
+        values.extend([task_id, user_id])
+        self.conn.execute(
+            f"""
+            UPDATE tasks
+            SET {", ".join(assignments)}
+            WHERE id = ? AND user_id = ?
+            """,
+            values,
         )
 
 

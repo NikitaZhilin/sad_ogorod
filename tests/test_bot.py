@@ -101,19 +101,28 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("Огородом", response.text)
         self.assertIsNotNone(response.reply_markup)
         labels = _keyboard_labels(response.reply_markup)
-        self.assertIn("Задачи", labels)
+        self.assertIn("Новая задача", labels)
+        self.assertIn("Все задачи", labels)
         self.assertIn("Огород", labels)
         self.assertIn("Настройки", labels)
 
     def test_tasks_button_opens_task_list(self) -> None:
         self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
 
-        response = self.bot.handle_message(self.message("Задачи"))
+        response = self.bot.handle_message(self.message("Все задачи"))
 
-        self.assertIn("Открытые задачи", response.text)
+        self.assertIn("Все открытые задачи", response.text)
         self.assertIn("Полить", response.text)
         self.assertIn("task:done:1", _inline_callbacks(response.reply_markup))
         self.assertIn("tasks:new", _inline_callbacks(response.reply_markup))
+
+    def test_legacy_tasks_button_alias_still_works(self) -> None:
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
+
+        response = self.bot.handle_message(self.message("Задачи"))
+
+        self.assertIn("Все открытые задачи", response.text)
+        self.assertIn("Полить", response.text)
 
     def test_today_command_shows_overdue_today_and_upcoming_actions(self) -> None:
         self.bot.handle(self.message("/task 2026-05-24 12:00 | Просроченная"))
@@ -241,6 +250,42 @@ class BotHandlerTests(unittest.TestCase):
             tasks = TaskService(conn).list_open(1)
         self.assertIsNone(state)
         self.assertEqual(tasks[0]["repeat_rule"], "weekly")
+
+    def test_new_task_button_uses_quick_due_buttons(self) -> None:
+        start = self.bot.handle_message(self.message("Новая задача"))
+        due_prompt = self.bot.handle_message(self.message("Проверить полив"))
+        due = self.bot.handle_callback(self.callback("task:due:tomorrow_morning"))
+        self.bot.handle_callback(self.callback("task:repeat:none"))
+        created = self.bot.handle_callback(self.callback("task:create"))
+
+        self.assertIn("Новая задача", start.text)
+        self.assertIn("Когда нужно сделать", due_prompt.text)
+        self.assertIn("task:due:tomorrow_morning", _inline_callbacks(due_prompt.reply_markup))
+        self.assertIn("Нужен повтор", due.text)
+        self.assertIn("Проверить полив", created.text)
+        with connect(self.app_state.db_path) as conn:
+            tasks = TaskService(conn).list_open(1)
+        self.assertEqual(tasks[0]["title"], "Проверить полив")
+        self.assertIsNotNone(tasks[0]["due_at"])
+
+    def test_task_details_allow_editing_title_and_due(self) -> None:
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Старое название"))
+
+        details = self.bot.handle_callback(self.callback("task:details:1"))
+        edit_menu = self.bot.handle_callback(self.callback("task:edit:1"))
+        self.bot.handle_callback(self.callback("task:edit_title:1"))
+        renamed = self.bot.handle_message(self.message("Новое название"))
+        self.bot.handle_callback(self.callback("task:edit_due:1"))
+        changed_due = self.bot.handle_callback(self.callback("task:due:none"))
+
+        self.assertIn("task:edit:1", _inline_callbacks(details.reply_markup))
+        self.assertIn("Что изменить", edit_menu.text)
+        self.assertIn("Новое название", renamed.text)
+        self.assertIn("без срока", changed_due.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+        self.assertEqual(task["title"], "Новое название")
+        self.assertIsNone(task["due_at"])
 
     def test_cancel_clears_dialog_state(self) -> None:
         self.bot.handle_message(self.message("/start"))

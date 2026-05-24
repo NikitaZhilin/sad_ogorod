@@ -15,19 +15,21 @@ REPEAT_LABELS = {
 def welcome() -> str:
     return (
         "Огородом\n\n"
-        "Основные действия доступны кнопками внизу: задачи, огород, журнал и настройки. "
-        "Текстовые команды тоже продолжают работать."
+        "Я помогу не забывать работы по участкам, посадкам и обработкам.\n\n"
+        "Начните с кнопки «Новая задача» или откройте «Сегодня», чтобы увидеть ближайшие дела. "
+        "Старые команды тоже работают."
     )
 
 
 def tasks_list(tasks: list[dict], timezone_name: str) -> str:
     if not tasks:
-        return "Открытых задач нет. Можно создать первую задачу кнопкой ниже."
-    lines = ["Открытые задачи:"]
+        return "Список задач пуст.\n\nНажмите «Новая задача», чтобы добавить первое дело."
+    lines = ["Все открытые задачи"]
     for task in tasks:
         due = format_local_datetime(task["due_at"], timezone_name)
         repeat = REPEAT_LABELS.get(task["repeat_rule"], task["repeat_rule"])
-        lines.append(f"#{task['id']} {due}\n{task['title']}\nПовтор: {repeat}")
+        suffix = "" if task["repeat_rule"] == "none" else f"\nПовтор: {repeat}"
+        lines.append(f"#{task['id']} {task['title']}\nСрок: {due}{suffix}")
     return "\n\n".join(lines)
 
 
@@ -38,8 +40,8 @@ def today(data: dict[str, list[dict]], timezone_name: str) -> str:
         ("Ближайшие 3 дня", data["upcoming"]),
     ]
     if not any(rows for _, rows in sections):
-        return "На сегодня и ближайшие дни задач нет."
-    lines: list[str] = ["Сегодня:"]
+        return "На сегодня и ближайшие 3 дня задач нет.\n\nМожно добавить новую задачу кнопкой ниже."
+    lines: list[str] = ["Сегодня и ближайшие дела"]
     for title, rows in sections:
         if not rows:
             continue
@@ -49,7 +51,7 @@ def today(data: dict[str, list[dict]], timezone_name: str) -> str:
             wait = ""
             if task.get("wait_until_date"):
                 wait = f"\nСрок ожидания до: {format_local_datetime(task['wait_until_date'], timezone_name)}"
-            lines.append(f"#{task['id']} {due} - {task['title']}{wait}")
+            lines.append(f"#{task['id']} {task['title']}\nСрок: {due}{wait}")
     return "\n".join(lines)
 
 
@@ -65,7 +67,7 @@ def task_card(task: dict, timezone_name: str) -> str:
     )
     return (
         f"Задача #{task['id']}\n"
-        f"Название: {task['title']}\n"
+        f"{task['title']}\n\n"
         f"Срок: {due}\n"
         f"Повтор: {repeat}\n"
         f"Напоминание: {remind}\n"
@@ -77,7 +79,7 @@ def task_card(task: dict, timezone_name: str) -> str:
 def task_confirmation(payload: dict, timezone_name: str) -> str:
     repeat = REPEAT_LABELS.get(payload.get("repeat_rule", "none"), "без повтора")
     return (
-        "Проверьте задачу:\n"
+        "Проверьте задачу перед созданием:\n"
         f"Название: {payload['title']}\n"
         f"Срок: {format_local_datetime(payload['due_at'], timezone_name)}\n"
         f"Повтор: {repeat}\n"
@@ -86,7 +88,7 @@ def task_confirmation(payload: dict, timezone_name: str) -> str:
 
 
 def garden_home() -> str:
-    return "Огород: выберите раздел."
+    return "Огород\n\nЗдесь хранятся участки, зоны и посадки. Выберите, что открыть."
 
 
 def garden_items(title: str, rows: list[dict]) -> str:
@@ -107,8 +109,8 @@ def garden_items(title: str, rows: list[dict]) -> str:
 
 def journal(rows: list[dict]) -> str:
     if not rows:
-        return "Журнал пока пуст. Здесь появятся созданные задачи, посадки и выполненные работы."
-    lines = ["Журнал:"]
+        return "Журнал пока пуст.\n\nЗдесь будут поливы, покосы, обработки и другие записи."
+    lines = ["Журнал работ"]
     for row in rows:
         wait = f" Ожидание до: {row['wait_until_date']}" if row.get("wait_until_date") else ""
         lines.append(f"#{row['id']} {row['created_at']} - {row['note']}{wait}")
@@ -118,7 +120,7 @@ def journal(rows: list[dict]) -> str:
 def settings(settings: dict, timezone_name: str) -> str:
     enabled = "включены" if settings["notifications_enabled"] else "выключены"
     return (
-        "Настройки:\n"
+        "Настройки\n"
         f"Уведомления: {enabled}\n"
         f"Тихие часы: {settings['quiet_start']}-{settings['quiet_end']}\n"
         f"Напоминать за: {settings['reminder_lead_minutes']} мин.\n"

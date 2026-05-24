@@ -22,10 +22,10 @@ def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
 def main_menu() -> dict[str, Any]:
     return reply_keyboard(
         [
-            ["Сегодня", "Задачи"],
-            ["Огород", "Журнал"],
-            ["Настройки", "Помощь"],
-            ["Отмена"],
+            ["Сегодня", "Новая задача"],
+            ["Все задачи", "Огород"],
+            ["Журнал", "Настройки"],
+            ["Помощь", "Отмена"],
         ]
     )
 
@@ -40,17 +40,11 @@ def tasks_menu(tasks: list[dict]) -> dict[str, Any]:
         task_id = task["id"]
         rows.append(
             [
+                (f"Открыть #{task_id}", f"task:details:{task_id}"),
                 ("Готово", f"task:done:{task_id}"),
-                ("Подробнее", f"task:details:{task_id}"),
             ]
         )
-        rows.append(
-            [
-                ("Отложить", f"task:snooze:{task_id}"),
-                ("Пропустить", f"task:skip:{task_id}"),
-            ]
-        )
-    rows.append([("Создать задачу", "tasks:new"), ("Обновить", "tasks:refresh")])
+    rows.append([("Новая задача", "tasks:new"), ("Обновить список", "tasks:refresh")])
     return inline_keyboard(rows)
 
 
@@ -70,7 +64,7 @@ def today_menu(tasks: list[dict]) -> dict[str, Any]:
                 ("Подробнее", f"task:details:{task_id}"),
             ]
         )
-    rows.append([("Обновить", "today:refresh")])
+    rows.append([("Новая задача", "tasks:new"), ("Обновить", "today:refresh")])
     return inline_keyboard(rows)
 
 
@@ -98,8 +92,30 @@ def skip_menu(task_id: int) -> dict[str, Any]:
 def task_details(task_id: int) -> dict[str, Any]:
     return inline_keyboard(
         [
-            [("Готово", f"task:done:{task_id}")],
-            [("Назад", "menu:tasks")],
+            [("Готово", f"task:done:{task_id}"), ("Изменить", f"task:edit:{task_id}")],
+            [("Отложить", f"task:snooze:{task_id}"), ("Пропустить", f"task:skip:{task_id}")],
+            [("К списку задач", "menu:tasks")],
+        ]
+    )
+
+
+def task_edit_menu(task_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Название", f"task:edit_title:{task_id}"), ("Срок", f"task:edit_due:{task_id}")],
+            [("Повтор", f"task:edit_repeat:{task_id}")],
+            [("К задаче", f"task:details:{task_id}")],
+        ]
+    )
+
+
+def task_due_menu() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Сегодня вечером", "task:due:today_evening")],
+            [("Завтра утром", "task:due:tomorrow_morning"), ("Завтра вечером", "task:due:tomorrow_evening")],
+            [("Ввести дату", "task:due:custom"), ("Без срока", "task:due:none")],
+            [("Отмена", "dialog:cancel")],
         ]
     )
 
@@ -115,8 +131,19 @@ def repeat_menu() -> dict[str, Any]:
     )
 
 
+def edit_repeat_menu(task_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Без повтора", f"task:er:{task_id}:none")],
+            [("Каждый день", f"task:er:{task_id}:daily"), ("Каждую неделю", f"task:er:{task_id}:weekly")],
+            [("Каждый месяц", f"task:er:{task_id}:monthly"), ("Каждый год", f"task:er:{task_id}:yearly")],
+            [("К задаче", f"task:details:{task_id}")],
+        ]
+    )
+
+
 def task_confirm() -> dict[str, Any]:
-    return inline_keyboard([[("Создать", "task:create"), ("Отмена", "dialog:cancel")]])
+    return inline_keyboard([[("Создать задачу", "task:create"), ("Отмена", "dialog:cancel")]])
 
 
 def garden_menu() -> dict[str, Any]:
