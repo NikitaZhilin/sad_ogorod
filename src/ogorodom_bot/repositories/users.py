@@ -20,6 +20,10 @@ class UserRepository(Repository):
     def update_name(self, user_id: int, full_name: str | None) -> None:
         self.conn.execute("UPDATE users SET full_name = ? WHERE id = ?", (full_name, user_id))
 
+    def list_all(self) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM users ORDER BY id").fetchall()
+        return [dict(row) for row in rows]
+
     def get_settings(self, user_id: int) -> dict | None:
         row = self.conn.execute(
             "SELECT * FROM user_settings WHERE user_id = ?", (user_id,)

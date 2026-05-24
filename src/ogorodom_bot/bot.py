@@ -14,6 +14,7 @@ from ogorodom_bot.services.backup import BackupService
 from ogorodom_bot.services.diagnostics import DiagnosticsService
 from ogorodom_bot.services.dialogs import DialogStateService
 from ogorodom_bot.services.garden import GardenService
+from ogorodom_bot.services.startup_notifications import StartupNotificationService
 from ogorodom_bot.services.tasks import TaskService
 from ogorodom_bot.services.time_utils import iso, parse_local_datetime
 from ogorodom_bot.services.users import UserService
@@ -631,6 +632,10 @@ def run() -> None:
     apply_migrations(settings.database_path)
     api = TelegramApi(settings.bot_token, timeout=settings.poll_timeout_seconds + 5)
     app = BotApplication(settings, api)
+    with connect(settings.database_path) as conn:
+        result = StartupNotificationService(conn, settings, api).send_once_for_version()
+        if result["enabled"]:
+            logger.info("startup update notification result=%s", result)
     offset: int | None = None
     logger.info("bot polling started")
     while True:

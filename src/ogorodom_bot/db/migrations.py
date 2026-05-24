@@ -123,6 +123,18 @@ MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
+    (
+        "0003_startup_broadcasts",
+        """
+        CREATE TABLE IF NOT EXISTS startup_broadcasts (
+            version TEXT PRIMARY KEY,
+            message TEXT NOT NULL,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+    ),
 ]
 
 

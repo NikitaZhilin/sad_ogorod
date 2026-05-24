@@ -10,6 +10,11 @@ def test_settings(db_path: Path, backup_dir: Path) -> Settings:
     return Settings(
         bot_token="test-token",
         app_env="test",
+        app_version="test-version",
+        send_startup_update_on_boot=False,
+        startup_update_message="",
+        testing_notice_enabled=False,
+        testing_notice_text="",
         database_path=db_path,
         backup_dir=backup_dir,
         log_level="CRITICAL",

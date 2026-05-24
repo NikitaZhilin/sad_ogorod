@@ -26,10 +26,22 @@ def _int_env(name: str, default: int) -> int:
     return int(raw)
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str
     app_env: str
+    app_version: str
+    send_startup_update_on_boot: bool
+    startup_update_message: str
+    testing_notice_enabled: bool
+    testing_notice_text: str
     database_path: Path
     backup_dir: Path
     log_level: str
@@ -46,6 +58,14 @@ class Settings:
         return cls(
             bot_token=os.getenv("BOT_TOKEN", ""),
             app_env=os.getenv("APP_ENV", "development"),
+            app_version=os.getenv("APP_VERSION", "dev"),
+            send_startup_update_on_boot=_bool_env("SEND_STARTUP_UPDATE_ON_BOOT", False),
+            startup_update_message=os.getenv("STARTUP_UPDATE_MESSAGE", ""),
+            testing_notice_enabled=_bool_env("TESTING_NOTICE_ENABLED", False),
+            testing_notice_text=os.getenv(
+                "TESTING_NOTICE_TEXT",
+                "⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны.",
+            ),
             database_path=Path(os.getenv("DATABASE_PATH", "data/ogorodom.sqlite3")),
             backup_dir=Path(os.getenv("BACKUP_DIR", "backups")),
             log_level=os.getenv("LOG_LEVEL", "INFO"),

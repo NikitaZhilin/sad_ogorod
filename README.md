@@ -7,6 +7,7 @@ Telegram-бот для ведения огородных задач: участ�
 - Telegram bot через Bot API long polling.
 - Кнопочный интерфейс: главное reply-меню, inline-действия и callback query.
 - Пошаговые диалоги создания задач, участков, зон и посадок с сохранением состояния в SQLite.
+- Уведомление пользователей при обновлении бота один раз на новую `APP_VERSION`.
 - SQLite база с миграциями при старте.
 - Архитектура `bot -> services -> repositories -> db`.
 - Участки, зоны, посадки.
@@ -82,6 +83,18 @@ docker compose -p ogorodom logs -f --tail=100
 python -m ogorodom_bot.manage backup
 python -m ogorodom_bot.manage diag
 python -m ogorodom_bot.manage restore --source backups/ogorodom-YYYYMMDDTHHMMSSZ.sqlite3
+```
+
+## Уведомление об обновлении
+
+Если `SEND_STARTUP_UPDATE_ON_BOOT=true`, бот при старте отправит всем зарегистрированным пользователям сообщение об обновлении один раз для каждой новой `APP_VERSION`.
+
+```env
+APP_VERSION=2026.05.25-web-login
+SEND_STARTUP_UPDATE_ON_BOOT=true
+STARTUP_UPDATE_MESSAGE=Добавлен вход в web-версию по ключу из Telegram. Улучшены отступы web-интерфейса.
+TESTING_NOTICE_ENABLED=true
+TESTING_NOTICE_TEXT=⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны.
 ```
 
 ## Тесты
