@@ -135,6 +135,43 @@ MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
+    (
+        "0004_task_actions_work_types",
+        """
+        ALTER TABLE tasks ADD COLUMN skipped_reason TEXT;
+        ALTER TABLE tasks ADD COLUMN wait_until_date TEXT;
+        ALTER TABLE tasks ADD COLUMN work_type TEXT;
+
+        ALTER TABLE journal_entries ADD COLUMN work_type TEXT;
+        ALTER TABLE journal_entries ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
+        ALTER TABLE journal_entries ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;
+        ALTER TABLE journal_entries ADD COLUMN planting_id INTEGER REFERENCES plantings(id) ON DELETE SET NULL;
+        ALTER TABLE journal_entries ADD COLUMN wait_until_date TEXT;
+
+        CREATE TABLE IF NOT EXISTS work_types (
+            code TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO work_types(code, title) VALUES
+            ('watering', 'Полив'),
+            ('mowing', 'Покос'),
+            ('treatment', 'Обработка'),
+            ('weeding', 'Прополка'),
+            ('fertilizing', 'Подкормка'),
+            ('planting', 'Посадка'),
+            ('harvesting', 'Сбор урожая'),
+            ('other', 'Другое');
+
+        CREATE TABLE IF NOT EXISTS startup_backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+    ),
 ]
 
 

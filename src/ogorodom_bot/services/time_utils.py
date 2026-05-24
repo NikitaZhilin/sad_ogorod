@@ -43,6 +43,46 @@ def format_local_datetime(raw: str | None, timezone_name: str) -> str:
     return dt.astimezone(ZoneInfo(timezone_name)).strftime("%d.%m.%Y %H:%M")
 
 
+def local_day_bounds(timezone_name: str, day_offset: int = 0) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(timezone_name)
+    day = datetime.now(tz).date() + timedelta(days=day_offset)
+    start = datetime.combine(day, time(0, 0), tzinfo=tz)
+    end = datetime.combine(day, time(23, 59, 59), tzinfo=tz)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def snooze_target(option: str, timezone_name: str) -> datetime:
+    now = utc_now()
+    tz = ZoneInfo(timezone_name)
+    local_now = now.astimezone(tz)
+    if option == "1h":
+        return now + timedelta(hours=1)
+    if option == "evening":
+        target = local_now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if target <= local_now:
+            target = target + timedelta(days=1)
+        return target.astimezone(timezone.utc)
+    if option == "tomorrow":
+        target = (local_now + timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        return target.astimezone(timezone.utc)
+    raise ValueError("unsupported snooze option")
+
+
+def parse_wait_until(raw: str, timezone_name: str) -> str:
+    value = raw.strip().lower()
+    if value.endswith("дней"):
+        value = value[:-4].strip()
+    elif value.endswith("дня"):
+        value = value[:-3].strip()
+    elif value.endswith("день"):
+        value = value[:-4].strip()
+    if value.isdigit():
+        return iso(utc_now() + timedelta(days=int(value)))
+    return iso(parse_local_datetime(raw, timezone_name))
+
+
 def iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)

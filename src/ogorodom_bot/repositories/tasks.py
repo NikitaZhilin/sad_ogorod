@@ -15,13 +15,15 @@ class TaskRepository(Repository):
         plot_id: int | None = None,
         zone_id: int | None = None,
         planting_id: int | None = None,
+        work_type: str | None = None,
+        wait_until_date: str | None = None,
     ) -> int:
         cur = self.conn.execute(
             """
             INSERT INTO tasks(
                 user_id, title, description, due_at, repeat_rule, remind_at,
-                plot_id, zone_id, planting_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                plot_id, zone_id, planting_id, work_type, wait_until_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -33,6 +35,8 @@ class TaskRepository(Repository):
                 plot_id,
                 zone_id,
                 planting_id,
+                work_type,
+                wait_until_date,
             ),
         )
         return int(cur.lastrowid)
@@ -50,7 +54,7 @@ class TaskRepository(Repository):
         rows = self.conn.execute(
             """
             SELECT * FROM tasks
-            WHERE user_id = ? AND status = 'open'
+            WHERE user_id = ? AND status IN ('open', 'active')
             ORDER BY COALESCE(due_at, '9999-12-31T23:59:59'), id
             LIMIT ?
             """,
@@ -72,7 +76,7 @@ class TaskRepository(Repository):
         rows = self.conn.execute(
             """
             SELECT * FROM tasks
-            WHERE status = 'open'
+            WHERE status IN ('open', 'active', 'snoozed')
               AND remind_at IS NOT NULL
               AND remind_at <= ?
               AND id NOT IN (
@@ -85,6 +89,41 @@ class TaskRepository(Repository):
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_today(self, user_id: int, end_iso: str, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM tasks
+            WHERE user_id = ?
+              AND status IN ('open', 'active', 'snoozed')
+              AND due_at IS NOT NULL
+              AND due_at <= ?
+            ORDER BY due_at, id
+            LIMIT ?
+            """,
+            (user_id, end_iso, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_status(
+        self,
+        task_id: int,
+        user_id: int,
+        status: str,
+        due_at: str | None = None,
+        skipped_reason: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE tasks
+            SET status = ?,
+                due_at = COALESCE(?, due_at),
+                skipped_reason = COALESCE(?, skipped_reason),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+            """,
+            (status, due_at, skipped_reason, task_id, user_id),
+        )
+
 
 class JournalRepository(Repository):
     def create(
@@ -94,13 +133,32 @@ class JournalRepository(Repository):
         note: str,
         entity_type: str | None = None,
         entity_id: int | None = None,
+        work_type: str | None = None,
+        task_id: int | None = None,
+        zone_id: int | None = None,
+        planting_id: int | None = None,
+        wait_until_date: str | None = None,
     ) -> int:
         cur = self.conn.execute(
             """
-            INSERT INTO journal_entries(user_id, entity_type, entity_id, entry_type, note)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO journal_entries(
+                user_id, entity_type, entity_id, entry_type, note,
+                work_type, task_id, zone_id, planting_id, wait_until_date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, entity_type, entity_id, entry_type, note),
+            (
+                user_id,
+                entity_type,
+                entity_id,
+                entry_type,
+                note,
+                work_type,
+                task_id,
+                zone_id,
+                planting_id,
+                wait_until_date,
+            ),
         )
         return int(cur.lastrowid)
 

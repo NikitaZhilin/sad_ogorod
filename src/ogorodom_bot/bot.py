@@ -14,9 +14,17 @@ from ogorodom_bot.services.backup import BackupService
 from ogorodom_bot.services.diagnostics import DiagnosticsService
 from ogorodom_bot.services.dialogs import DialogStateService
 from ogorodom_bot.services.garden import GardenService
+from ogorodom_bot.services.journal import JournalService, WORK_TYPE_TITLES
+from ogorodom_bot.services.privacy import PrivacyService
 from ogorodom_bot.services.startup_notifications import StartupNotificationService
+from ogorodom_bot.services.startup_backup import StartupBackupService
 from ogorodom_bot.services.tasks import TaskService
-from ogorodom_bot.services.time_utils import format_local_datetime, iso, parse_local_datetime
+from ogorodom_bot.services.time_utils import (
+    format_local_datetime,
+    iso,
+    parse_local_datetime,
+    parse_wait_until,
+)
 from ogorodom_bot.services.users import UserService
 from ogorodom_bot.telegram_api import TelegramApi
 from ogorodom_bot.ui import keyboards, messages
@@ -28,6 +36,14 @@ HELP = """Огородом:
 /task YYYY-MM-DD HH:MM | название | repeat=none|daily|weekly|monthly|yearly
 /tasks - открытые задачи
 /done ID - закрыть задачу
+/today - задачи на сегодня
+/pause - выключить уведомления
+/resume - включить уведомления
+/water [текст] - записать полив
+/mow [текст] - записать покос
+/treat [текст] [wait=3] - записать обработку
+/log [текст] - добавить запись журнала
+/delete_me - удалить мои данные с подтверждением
 /plot название - добавить участок
 /plots - список участков
 /zone название - добавить зону
@@ -40,7 +56,7 @@ HELP = """Огородом:
 /backup - сделать backup SQLite
 /diag - диагностика"""
 
-MAIN_BUTTONS = {"Задачи", "Огород", "Журнал", "Настройки", "Помощь"}
+MAIN_BUTTONS = {"Сегодня", "Задачи", "Огород", "Журнал", "Настройки", "Помощь"}
 TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 
 
@@ -149,6 +165,8 @@ class BotApplication:
 
             if text == "Задачи":
                 return self._tasks_response(conn, user["id"], message.chat_id)
+            if text == "Сегодня":
+                return self._today_response(conn, user, message.chat_id)
             if text == "Огород":
                 return BotResponse(message.chat_id, messages.garden_home(), keyboards.garden_menu())
             if text == "Журнал":
@@ -181,6 +199,46 @@ class BotApplication:
             return BotResponse(chat_id, messages.welcome(), keyboards.main_menu())
         if text == "/help":
             return BotResponse(chat_id, HELP, keyboards.main_menu())
+        if text == "/today":
+            return self._today_response(conn, user, chat_id)
+        if text == "/pause":
+            user_service.update_settings(user["id"], notifications_enabled=False)
+            return BotResponse(chat_id, "Уведомления выключены.")
+        if text == "/resume":
+            user_service.update_settings(user["id"], notifications_enabled=True)
+            return BotResponse(chat_id, "Уведомления включены.")
+        if text == "/delete_me":
+            return BotResponse(
+                chat_id,
+                "Удалить все ваши данные? Действие нельзя отменить.",
+                keyboards.delete_me_confirm(),
+            )
+        if text == "/log":
+            DialogStateService(conn).set(user["id"], "log_wait_type", {})
+            return BotResponse(chat_id, "Выберите тип работы.", keyboards.work_type_menu())
+        if text.startswith("/log "):
+            entry_id = JournalService(conn).create_entry(
+                user["id"], text[len("/log ") :].strip(), work_type="other"
+            )
+            return BotResponse(chat_id, f"Запись журнала #{entry_id} добавлена.")
+        for command, work_type in (
+            ("/water", "watering"),
+            ("/mow", "mowing"),
+            ("/treat", "treatment"),
+        ):
+            if text == command:
+                payload = {"work_type": work_type}
+                state = "work_wait_wait_until" if work_type == "treatment" else "work_wait_note"
+                DialogStateService(conn).set(user["id"], state, payload)
+                prompt = (
+                    "Введите срок ожидания после обработки: дату или количество дней. "
+                    "Можно '-' если срока ожидания нет."
+                    if work_type == "treatment"
+                    else f"Введите заметку для работы: {WORK_TYPE_TITLES[work_type]}."
+                )
+                return BotResponse(chat_id, prompt, keyboards.cancel_inline())
+            if text.startswith(command + " "):
+                return self._quick_work_log(conn, user, chat_id, work_type, text[len(command) :].strip())
         if text.startswith("/task "):
             return BotResponse(chat_id, self._create_task(conn, user, text[len("/task ") :]))
         if text == "/tasks":
@@ -240,6 +298,8 @@ class BotApplication:
             return BotResponse(chat_id, "Действие отменено.", keyboards.main_menu())
         if data in {"menu:tasks", "tasks:refresh"}:
             return self._tasks_response(conn, user["id"], chat_id, edit_message_id=message_id)
+        if data in {"menu:today", "today:refresh"}:
+            return self._today_response(conn, user, chat_id, edit_message_id=message_id)
         if data == "menu:garden":
             return BotResponse(chat_id, messages.garden_home(), keyboards.garden_menu(), message_id)
         if data == "journal:refresh":
@@ -280,6 +340,46 @@ class BotApplication:
                 keyboards.tasks_menu(tasks),
                 message_id,
             )
+        if data.startswith("task:snooze:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            return BotResponse(chat_id, "На когда отложить задачу?", keyboards.snooze_menu(task_id), message_id)
+        for prefix, option in (
+            ("task:snooze1h:", "1h"),
+            ("task:snoozeevening:", "evening"),
+            ("task:snoozetomorrow:", "tomorrow"),
+        ):
+            if data.startswith(prefix):
+                task_id = int(data.rsplit(":", 1)[1])
+                due_at = TaskService(conn).snooze_task(user["id"], task_id, option, user["timezone"])
+                return BotResponse(
+                    chat_id,
+                    f"Задача отложена до {format_local_datetime(due_at, user['timezone'])}.",
+                    keyboards.main_menu(),
+                    callback_text="Отложено",
+                )
+        if data.startswith("task:snoozecustom:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "task_wait_snooze_at", {"task_id": task_id})
+            return BotResponse(
+                chat_id,
+                "Введите новую дату/время задачи.",
+                keyboards.cancel_inline(),
+                callback_text="Введите дату",
+            )
+        if data.startswith("task:skip:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            return BotResponse(chat_id, "Пропустить задачу?", keyboards.skip_menu(task_id), message_id)
+        if data.startswith("task:skipnow:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            next_id = TaskService(conn).skip_task(user["id"], task_id)
+            text = "Задача пропущена."
+            if next_id:
+                text += f" Создан следующий повтор #{next_id}."
+            return BotResponse(chat_id, text, keyboards.main_menu(), callback_text="Пропущено")
+        if data.startswith("task:skipreason:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "task_wait_skip_reason", {"task_id": task_id})
+            return BotResponse(chat_id, "Введите причину пропуска.", keyboards.cancel_inline())
         if data.startswith("task:repeat:"):
             repeat_rule = data.rsplit(":", 1)[1]
             dialog_state = dialog.get(user["id"])
@@ -376,6 +476,21 @@ class BotApplication:
             return self._settings_response(
                 conn, user_service, user, chat_id, edit_message_id=message_id
             )
+        if data.startswith("logtype:"):
+            work_type = data.rsplit(":", 1)[1]
+            dialog.set(user["id"], "log_wait_note", {"work_type": work_type})
+            return BotResponse(chat_id, "Введите текст записи журнала.", keyboards.cancel_inline())
+        if data == "log:add":
+            dialog.set(user["id"], "log_wait_type", {})
+            return BotResponse(chat_id, "Выберите тип работы.", keyboards.work_type_menu())
+        if data == "delete:confirm":
+            PrivacyService(conn).delete_user_data(user["id"])
+            return BotResponse(
+                chat_id,
+                "Ваши данные удалены.",
+                keyboards.main_menu(),
+                callback_text="Удалено",
+            )
         if data == "settings:quiet":
             dialog.set(user["id"], "settings_wait_quiet_start", {})
             return BotResponse(chat_id, "Введите начало тихих часов в формате HH:MM.", keyboards.cancel_inline())
@@ -425,6 +540,53 @@ class BotApplication:
             payload["due_at"] = due_at
             dialog.set(user["id"], "task_wait_repeat", payload)
             return BotResponse(chat_id, "Выберите повтор задачи.", keyboards.repeat_menu())
+        if state_name == "task_wait_snooze_at":
+            try:
+                due_at = iso(parse_local_datetime(text, user["timezone"]))
+            except ValueError:
+                return BotResponse(chat_id, "Не удалось разобрать дату.", keyboards.cancel_inline())
+            TaskService(conn).snooze_task_until(user["id"], int(payload["task_id"]), due_at)
+            dialog.clear(user["id"])
+            return BotResponse(
+                chat_id,
+                f"Задача отложена до {format_local_datetime(due_at, user['timezone'])}.",
+                keyboards.main_menu(),
+            )
+        if state_name == "task_wait_skip_reason":
+            next_id = TaskService(conn).skip_task(user["id"], int(payload["task_id"]), text)
+            dialog.clear(user["id"])
+            result = "Задача пропущена."
+            if next_id:
+                result += f" Создан следующий повтор #{next_id}."
+            return BotResponse(chat_id, result, keyboards.main_menu())
+        if state_name == "log_wait_type":
+            return BotResponse(chat_id, "Выберите тип работы кнопкой ниже.", keyboards.work_type_menu())
+        if state_name == "log_wait_note":
+            entry_id = JournalService(conn).create_entry(
+                user["id"], text, work_type=payload.get("work_type", "other")
+            )
+            dialog.clear(user["id"])
+            return BotResponse(chat_id, f"Запись журнала #{entry_id} добавлена.", keyboards.main_menu())
+        if state_name == "work_wait_note":
+            entry_id = JournalService(conn).create_entry(
+                user["id"], text, work_type=payload.get("work_type", "other")
+            )
+            dialog.clear(user["id"])
+            return BotResponse(chat_id, f"Запись журнала #{entry_id} добавлена.", keyboards.main_menu())
+        if state_name == "work_wait_wait_until":
+            wait_until = None
+            if text != "-":
+                try:
+                    wait_until = parse_wait_until(text, user["timezone"])
+                except ValueError:
+                    return BotResponse(
+                        chat_id,
+                        "Не удалось разобрать срок ожидания. Введите дату или число дней.",
+                        keyboards.cancel_inline(),
+                    )
+            payload["wait_until_date"] = wait_until
+            dialog.set(user["id"], "work_wait_note", payload)
+            return BotResponse(chat_id, "Введите заметку для обработки.", keyboards.cancel_inline())
         if state_name == "plot_wait_name":
             if not text:
                 return BotResponse(chat_id, "Введите название участка.", keyboards.cancel_inline())
@@ -508,6 +670,18 @@ class BotApplication:
             edit_message_id,
         )
 
+    def _today_response(
+        self, conn, user: dict, chat_id: int, edit_message_id: int | None = None
+    ) -> BotResponse:
+        data = TaskService(conn).today(user["id"], user["timezone"])
+        tasks = data["overdue"] + data["today"] + data["upcoming"]
+        return BotResponse(
+            chat_id,
+            messages.today(data, user["timezone"]),
+            keyboards.today_menu(tasks),
+            edit_message_id,
+        )
+
     def _journal_response(
         self, conn, user_id: int, chat_id: int, edit_message_id: int | None = None
     ) -> BotResponse:
@@ -550,6 +724,24 @@ class BotApplication:
             remind_at=remind_at,
         )
         return f"Задача #{task_id} «{title}» создана"
+
+    def _quick_work_log(
+        self, conn, user: dict, chat_id: int, work_type: str, payload: str
+    ) -> BotResponse:
+        wait_until = None
+        note = payload.strip()
+        if work_type == "treatment":
+            parts = [part for part in note.split() if part.startswith("wait=")]
+            for part in parts:
+                wait_until = parse_wait_until(part.split("=", 1)[1], user["timezone"])
+                note = note.replace(part, "").strip()
+        entry_id = JournalService(conn).create_entry(
+            user["id"],
+            note or WORK_TYPE_TITLES.get(work_type, "Работа"),
+            work_type=work_type,
+            wait_until_date=wait_until,
+        )
+        return BotResponse(chat_id, f"Запись журнала #{entry_id} добавлена.")
 
     def _list_tasks(self, conn, user_id: int) -> str:
         tasks = TaskService(conn).list_open(user_id)
@@ -647,6 +839,7 @@ def run() -> None:
     settings = Settings.from_env()
     settings.require_bot_token()
     configure_logging(settings.log_level)
+    StartupBackupService(settings).maybe_backup()
     apply_migrations(settings.database_path)
     api = TelegramApi(settings.bot_token, timeout=settings.poll_timeout_seconds + 5)
     app = BotApplication(settings, api)

@@ -33,6 +33,13 @@ Backup:
 docker compose -p ogorodom run --rm ogorodom-bot python -m ogorodom_bot.manage backup
 ```
 
+Dry-run напоминаний без отправки сообщений:
+
+```bash
+docker compose -p ogorodom run --rm ogorodom-worker python -m ogorodom_bot.worker --dry-run
+docker compose -p ogorodom run --rm ogorodom-bot python -m ogorodom_bot.manage dry-run-reminders
+```
+
 Restore:
 
 ```bash

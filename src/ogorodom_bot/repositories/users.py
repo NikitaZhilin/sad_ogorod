@@ -24,6 +24,9 @@ class UserRepository(Repository):
         rows = self.conn.execute("SELECT * FROM users ORDER BY id").fetchall()
         return [dict(row) for row in rows]
 
+    def delete(self, user_id: int) -> None:
+        self.conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
     def get_settings(self, user_id: int) -> dict | None:
         row = self.conn.execute(
             "SELECT * FROM user_settings WHERE user_id = ?", (user_id,)

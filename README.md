@@ -25,9 +25,17 @@ Telegram-бот для ведения огородных задач: участ�
 
 ```text
 /start или /help
+/today
 /task YYYY-MM-DD HH:MM | название | repeat=none|daily|weekly|monthly|yearly
 /tasks
 /done ID
+/pause
+/resume
+/water [текст]
+/mow [текст]
+/treat [текст] [wait=3]
+/log [текст]
+/delete_me
 /plot название
 /plots
 /zone название
@@ -83,6 +91,20 @@ docker compose -p ogorodom logs -f --tail=100
 python -m ogorodom_bot.manage backup
 python -m ogorodom_bot.manage diag
 python -m ogorodom_bot.manage restore --source backups/ogorodom-YYYYMMDDTHHMMSSZ.sqlite3
+```
+
+Worker dry-run без отправки сообщений:
+
+```bash
+python -m ogorodom_bot.worker --dry-run
+python -m ogorodom_bot.manage dry-run-reminders
+```
+
+Startup backup включен по умолчанию и защищен от слишком частого запуска:
+
+```env
+STARTUP_BACKUP_ENABLED=true
+STARTUP_BACKUP_MIN_INTERVAL_SECONDS=300
 ```
 
 ## Уведомление об обновлении

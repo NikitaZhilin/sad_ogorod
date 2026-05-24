@@ -20,6 +20,8 @@ def test_settings(db_path: Path, backup_dir: Path) -> Settings:
         log_level="CRITICAL",
         poll_timeout_seconds=1,
         worker_interval_seconds=1,
+        startup_backup_enabled=True,
+        startup_backup_min_interval_seconds=300,
         default_timezone="Europe/Moscow",
         default_quiet_start="22:00",
         default_quiet_end="08:00",

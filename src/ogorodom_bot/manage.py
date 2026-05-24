@@ -12,7 +12,7 @@ from ogorodom_bot.services.diagnostics import DiagnosticsService
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["migrate", "backup", "diag", "restore"])
+    parser.add_argument("command", choices=["migrate", "backup", "diag", "restore", "dry-run-reminders"])
     parser.add_argument("--source", help="backup path for restore")
     args = parser.parse_args()
 
@@ -36,6 +36,18 @@ def main() -> None:
                 Path(args.source)
             )
             print("Restored")
+        elif args.command == "dry-run-reminders":
+            from ogorodom_bot.services.tasks import TaskService
+            from ogorodom_bot.services.time_utils import utc_now
+
+            rows = TaskService(conn).preview_due_reminders(utc_now())
+            if not rows:
+                print("No due reminders")
+            for row in rows:
+                print(
+                    f"{row['source']} task_id={row.get('task_id', row.get('id'))} "
+                    f"title={row.get('title', '')} due_at={row.get('due_at', '')}"
+                )
 
 
 if __name__ == "__main__":

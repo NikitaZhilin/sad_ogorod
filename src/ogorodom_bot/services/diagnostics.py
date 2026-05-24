@@ -20,7 +20,7 @@ class DiagnosticsService:
             else 0,
             "migration_version": current_version(self.database_path),
             "users": self._count("users"),
-            "open_tasks": self._count("tasks", "status = 'open'"),
+            "open_tasks": self._count("tasks", "status IN ('open', 'active', 'snoozed')"),
             "pending_reminders": self._count("reminder_events", "status = 'pending'"),
             "journal_entries": self._count("journal_entries"),
         }

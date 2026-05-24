@@ -31,17 +31,45 @@ def tasks_list(tasks: list[dict], timezone_name: str) -> str:
     return "\n\n".join(lines)
 
 
+def today(data: dict[str, list[dict]], timezone_name: str) -> str:
+    sections = [
+        ("Просрочено", data["overdue"]),
+        ("Сегодня", data["today"]),
+        ("Ближайшие 3 дня", data["upcoming"]),
+    ]
+    if not any(rows for _, rows in sections):
+        return "На сегодня и ближайшие дни задач нет."
+    lines: list[str] = ["Сегодня:"]
+    for title, rows in sections:
+        if not rows:
+            continue
+        lines.append(f"\n{title}:")
+        for task in rows:
+            due = format_local_datetime(task["due_at"], timezone_name)
+            wait = ""
+            if task.get("wait_until_date"):
+                wait = f"\nСрок ожидания до: {format_local_datetime(task['wait_until_date'], timezone_name)}"
+            lines.append(f"#{task['id']} {due} - {task['title']}{wait}")
+    return "\n".join(lines)
+
+
 def task_card(task: dict, timezone_name: str) -> str:
     due = format_local_datetime(task["due_at"], timezone_name)
     repeat = REPEAT_LABELS.get(task["repeat_rule"], task["repeat_rule"])
     description = task["description"] or "нет"
     remind = format_local_datetime(task["remind_at"], timezone_name) if task["remind_at"] else "нет"
+    wait = (
+        format_local_datetime(task["wait_until_date"], timezone_name)
+        if task.get("wait_until_date")
+        else "нет"
+    )
     return (
         f"Задача #{task['id']}\n"
         f"Название: {task['title']}\n"
         f"Срок: {due}\n"
         f"Повтор: {repeat}\n"
         f"Напоминание: {remind}\n"
+        f"Срок ожидания: {wait}\n"
         f"Описание: {description}"
     )
 
@@ -80,9 +108,11 @@ def garden_items(title: str, rows: list[dict]) -> str:
 def journal(rows: list[dict]) -> str:
     if not rows:
         return "Журнал пока пуст. Здесь появятся созданные задачи, посадки и выполненные работы."
-    return "\n".join(
-        ["Журнал:"] + [f"#{row['id']} {row['created_at']} - {row['note']}" for row in rows]
-    )
+    lines = ["Журнал:"]
+    for row in rows:
+        wait = f" Ожидание до: {row['wait_until_date']}" if row.get("wait_until_date") else ""
+        lines.append(f"#{row['id']} {row['created_at']} - {row['note']}{wait}")
+    return "\n".join(lines)
 
 
 def settings(settings: dict, timezone_name: str) -> str:

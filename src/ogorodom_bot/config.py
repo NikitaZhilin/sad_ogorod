@@ -47,6 +47,8 @@ class Settings:
     log_level: str
     poll_timeout_seconds: int
     worker_interval_seconds: int
+    startup_backup_enabled: bool
+    startup_backup_min_interval_seconds: int
     default_timezone: str
     default_quiet_start: str
     default_quiet_end: str
@@ -71,6 +73,10 @@ class Settings:
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             poll_timeout_seconds=_int_env("POLL_TIMEOUT_SECONDS", 30),
             worker_interval_seconds=_int_env("WORKER_INTERVAL_SECONDS", 30),
+            startup_backup_enabled=_bool_env("STARTUP_BACKUP_ENABLED", True),
+            startup_backup_min_interval_seconds=_int_env(
+                "STARTUP_BACKUP_MIN_INTERVAL_SECONDS", 300
+            ),
             default_timezone=os.getenv("DEFAULT_TIMEZONE", "Europe/Moscow"),
             default_quiet_start=os.getenv("DEFAULT_QUIET_START", "22:00"),
             default_quiet_end=os.getenv("DEFAULT_QUIET_END", "08:00"),

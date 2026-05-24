@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import argparse
 import time
 
 from ogorodom_bot.config import Settings
@@ -8,6 +9,7 @@ from ogorodom_bot.db.connection import connect
 from ogorodom_bot.db.migrations import apply_migrations
 from ogorodom_bot.logging_config import configure_logging
 from ogorodom_bot.repositories.tasks import ReminderRepository
+from ogorodom_bot.services.startup_backup import StartupBackupService
 from ogorodom_bot.services.tasks import TaskService
 from ogorodom_bot.services.time_utils import iso, utc_now
 from ogorodom_bot.telegram_api import TelegramApi
@@ -38,10 +40,27 @@ def tick(settings: Settings, api: TelegramApi) -> dict[str, int]:
         return {"scheduled": scheduled, "sent": sent, "failed": failed}
 
 
+def dry_run(settings: Settings) -> list[dict]:
+    apply_migrations(settings.database_path)
+    with connect(settings.database_path) as conn:
+        return TaskService(conn).preview_due_reminders(utc_now())
+
+
 def run() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
     settings = Settings.from_env()
-    settings.require_bot_token()
     configure_logging(settings.log_level)
+    if args.dry_run:
+        for item in dry_run(settings):
+            print(
+                f"{item['source']} task_id={item.get('task_id', item.get('id'))} "
+                f"title={item.get('title', '')} due_at={item.get('due_at', '')}"
+            )
+        return
+    settings.require_bot_token()
+    StartupBackupService(settings).maybe_backup()
     apply_migrations(settings.database_path)
     api = TelegramApi(settings.bot_token)
     logger.info("worker started")

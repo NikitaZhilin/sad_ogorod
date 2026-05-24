@@ -115,6 +115,22 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("task:done:1", _inline_callbacks(response.reply_markup))
         self.assertIn("tasks:new", _inline_callbacks(response.reply_markup))
 
+    def test_today_command_shows_overdue_today_and_upcoming_actions(self) -> None:
+        self.bot.handle(self.message("/task 2026-05-24 12:00 | Просроченная"))
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Сегодня"))
+        self.bot.handle(self.message("/task 2026-05-27 12:00 | Скоро"))
+
+        response = self.bot.handle_message(self.message("/today"))
+
+        self.assertIn("Просрочено", response.text)
+        self.assertIn("Сегодня", response.text)
+        self.assertIn("Ближайшие 3 дня", response.text)
+        callbacks = _inline_callbacks(response.reply_markup)
+        self.assertIn("task:done:1", callbacks)
+        self.assertIn("task:snooze:1", callbacks)
+        self.assertIn("task:skip:1", callbacks)
+        self.assertIn("task:details:1", callbacks)
+
     def test_callback_done_completes_task_without_manual_id(self) -> None:
         self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
 
@@ -126,6 +142,23 @@ class BotHandlerTests(unittest.TestCase):
             task = TaskService(conn).get_task(1, 1)
         self.assertEqual(task["status"], "done")
 
+    def test_snooze_and_skip_callbacks_update_task(self) -> None:
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить | repeat=daily"))
+        snoozed = self.bot.handle_callback(self.callback("task:snooze1h:1"))
+        skipped_menu = self.bot.handle_callback(self.callback("task:skip:1"))
+        self.bot.handle_callback(self.callback("task:skipreason:1"))
+        skipped = self.bot.handle_message(self.message("Дождь"))
+
+        self.assertIn("отложена", snoozed.text)
+        self.assertIn("Пропустить задачу", skipped_menu.text)
+        self.assertIn("пропущена", skipped.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+            tasks = TaskService(conn).list_open(1)
+        self.assertEqual(task["status"], "skipped")
+        self.assertEqual(task["skipped_reason"], "Дождь")
+        self.assertEqual(len(tasks), 1)
+
     def test_settings_notify_callback_toggles_notifications(self) -> None:
         self.bot.handle_message(self.message("/start"))
 
@@ -135,6 +168,56 @@ class BotHandlerTests(unittest.TestCase):
         with connect(self.app_state.db_path) as conn:
             settings = UserRepository(conn).get_settings(1)
         self.assertEqual(settings["notifications_enabled"], 0)
+
+    def test_pause_and_resume_commands_toggle_notifications(self) -> None:
+        pause = self.bot.handle_message(self.message("/pause"))
+        resume = self.bot.handle_message(self.message("/resume"))
+
+        self.assertIn("выключены", pause.text)
+        self.assertIn("включены", resume.text)
+        with connect(self.app_state.db_path) as conn:
+            settings = UserRepository(conn).get_settings(1)
+        self.assertEqual(settings["notifications_enabled"], 1)
+
+    def test_work_aliases_and_log_create_journal_entries(self) -> None:
+        water = self.bot.handle_message(self.message("/water Полил теплицу"))
+        mow = self.bot.handle_message(self.message("/mow Покосил траву"))
+        treat = self.bot.handle_message(self.message("/treat Обработка от тли wait=3"))
+        log = self.bot.handle_message(self.message("/log Ручная запись"))
+
+        self.assertIn("Запись журнала #1", water.text)
+        self.assertIn("Запись журнала #2", mow.text)
+        self.assertIn("Запись журнала #3", treat.text)
+        self.assertIn("Запись журнала #4", log.text)
+        with connect(self.app_state.db_path) as conn:
+            rows = TaskService(conn).journal.list_recent(1, limit=10)
+        self.assertEqual(rows[-1]["work_type"], "watering")
+        self.assertEqual(rows[-2]["work_type"], "mowing")
+        self.assertEqual(rows[-3]["work_type"], "treatment")
+        self.assertIsNotNone(rows[-3]["wait_until_date"])
+
+    def test_log_dialog_creates_entry(self) -> None:
+        self.bot.handle_message(self.message("/log"))
+        self.bot.handle_callback(self.callback("logtype:watering"))
+        response = self.bot.handle_message(self.message("Полив через диалог"))
+
+        self.assertIn("Запись журнала #1", response.text)
+        with connect(self.app_state.db_path) as conn:
+            rows = TaskService(conn).journal.list_recent(1)
+        self.assertEqual(rows[0]["work_type"], "watering")
+
+    def test_delete_me_requires_confirmation_and_deletes_user_data(self) -> None:
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
+        prompt = self.bot.handle_message(self.message("/delete_me"))
+        response = self.bot.handle_callback(self.callback("delete:confirm"))
+
+        self.assertIn("Удалить все ваши данные", prompt.text)
+        self.assertIn("данные удалены", response.text)
+        with connect(self.app_state.db_path) as conn:
+            users = UserRepository(conn).list_all()
+            tasks = TaskService(conn).list_open(1)
+        self.assertEqual(users, [])
+        self.assertEqual(tasks, [])
 
     def test_task_dialog_saves_and_clears_state(self) -> None:
         self.bot.handle_message(self.message("/start"))

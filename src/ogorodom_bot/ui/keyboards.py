@@ -22,9 +22,10 @@ def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
 def main_menu() -> dict[str, Any]:
     return reply_keyboard(
         [
-            ["Задачи", "Огород"],
-            ["Журнал", "Настройки"],
-            ["Помощь", "Отмена"],
+            ["Сегодня", "Задачи"],
+            ["Огород", "Журнал"],
+            ["Настройки", "Помощь"],
+            ["Отмена"],
         ]
     )
 
@@ -43,8 +44,55 @@ def tasks_menu(tasks: list[dict]) -> dict[str, Any]:
                 ("Подробнее", f"task:details:{task_id}"),
             ]
         )
+        rows.append(
+            [
+                ("Отложить", f"task:snooze:{task_id}"),
+                ("Пропустить", f"task:skip:{task_id}"),
+            ]
+        )
     rows.append([("Создать задачу", "tasks:new"), ("Обновить", "tasks:refresh")])
     return inline_keyboard(rows)
+
+
+def today_menu(tasks: list[dict]) -> dict[str, Any]:
+    rows: list[list[tuple[str, str]]] = []
+    for task in tasks:
+        task_id = task["id"]
+        rows.append(
+            [
+                ("Готово", f"task:done:{task_id}"),
+                ("Отложить", f"task:snooze:{task_id}"),
+            ]
+        )
+        rows.append(
+            [
+                ("Пропустить", f"task:skip:{task_id}"),
+                ("Подробнее", f"task:details:{task_id}"),
+            ]
+        )
+    rows.append([("Обновить", "today:refresh")])
+    return inline_keyboard(rows)
+
+
+def snooze_menu(task_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("1 час", f"task:snooze1h:{task_id}"), ("Вечер", f"task:snoozeevening:{task_id}")],
+            [("Завтра", f"task:snoozetomorrow:{task_id}")],
+            [("Выбрать дату", f"task:snoozecustom:{task_id}")],
+            [("Назад", "menu:today")],
+        ]
+    )
+
+
+def skip_menu(task_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Без причины", f"task:skipnow:{task_id}")],
+            [("Указать причину", f"task:skipreason:{task_id}")],
+            [("Назад", "menu:today")],
+        ]
+    )
 
 
 def task_details(task_id: int) -> dict[str, Any]:
@@ -109,7 +157,26 @@ def choose_zone(zones: list[dict]) -> dict[str, Any]:
 
 
 def journal_menu() -> dict[str, Any]:
-    return inline_keyboard([[("Обновить", "journal:refresh")]])
+    return inline_keyboard([[("Добавить запись", "log:add"), ("Обновить", "journal:refresh")]])
+
+
+def work_type_menu(prefix: str = "logtype") -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Полив", f"{prefix}:watering"), ("Покос", f"{prefix}:mowing")],
+            [("Обработка", f"{prefix}:treatment"), ("Другое", f"{prefix}:other")],
+            [("Отмена", "dialog:cancel")],
+        ]
+    )
+
+
+def delete_me_confirm() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Да, удалить мои данные", "delete:confirm")],
+            [("Отмена", "dialog:cancel")],
+        ]
+    )
 
 
 def settings_menu(notifications_enabled: bool) -> dict[str, Any]:
