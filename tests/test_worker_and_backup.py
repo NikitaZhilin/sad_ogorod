@@ -33,6 +33,18 @@ class WorkerAndBackupTests(unittest.TestCase):
         self.assertTrue(first.exists())
         self.assertIsNone(second)
 
+    def test_startup_backup_skips_when_locked(self) -> None:
+        lock = self.app.settings.backup_dir / ".startup-backup.lock"
+        self.app.settings.backup_dir.mkdir(parents=True, exist_ok=True)
+        lock.write_text("locked", encoding="utf-8")
+
+        try:
+            result = StartupBackupService(self.app.settings).maybe_backup()
+        finally:
+            lock.unlink(missing_ok=True)
+
+        self.assertIsNone(result)
+
     def test_dry_run_reminders_does_not_mutate_pending_event(self) -> None:
         with connect(self.app.db_path) as conn:
             user = UserService(conn, self.app.settings).ensure_user(100, "User")
