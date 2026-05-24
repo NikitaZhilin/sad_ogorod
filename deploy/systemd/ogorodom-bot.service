@@ -11,8 +11,6 @@ Environment=PYTHONPATH=/opt/ogorodom/src
 ExecStart=/opt/ogorodom/.venv/bin/python -m ogorodom_bot.bot
 Restart=always
 RestartSec=5
-User=ogorodom
-Group=ogorodom
 
 [Install]
 WantedBy=multi-user.target

@@ -48,6 +48,7 @@ Systemd templates are in `deploy/systemd`. They assume:
 - project path: `/opt/ogorodom`
 - env file: `/opt/ogorodom/.env`
 - Python virtualenv: `/opt/ogorodom/.venv`
+- root-owned service files. Add a dedicated user only if `/opt` permissions allow it.
 
 Install:
 
