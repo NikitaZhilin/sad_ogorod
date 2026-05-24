@@ -111,7 +111,18 @@ MIGRATIONS: list[tuple[str, str]] = [
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         """,
-    )
+    ),
+    (
+        "0002_dialog_states",
+        """
+        CREATE TABLE IF NOT EXISTS dialog_states (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            state TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+    ),
 ]
 
 
@@ -139,7 +150,7 @@ def current_version(database_path: Path | str) -> str | None:
     try:
         with connect(database_path) as conn:
             row = conn.execute(
-                "SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1"
+                "SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1"
             ).fetchone()
             return row["version"] if row else None
     except sqlite3.OperationalError:

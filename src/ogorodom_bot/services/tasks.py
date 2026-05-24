@@ -57,6 +57,9 @@ class TaskService:
     def list_open(self, user_id: int) -> list[dict]:
         return self.tasks.list_open(user_id)
 
+    def get_task(self, user_id: int, task_id: int) -> dict | None:
+        return self.tasks.get(task_id, user_id)
+
     def complete_task(self, user_id: int, task_id: int) -> int | None:
         task = self.tasks.get(task_id, user_id)
         if task is None:
