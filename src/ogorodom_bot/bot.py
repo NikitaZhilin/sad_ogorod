@@ -629,12 +629,16 @@ def _dispatch_response(api: TelegramApi, response: BotResponse) -> None:
     if response.answer_callback_query_id:
         api.answer_callback_query(response.answer_callback_query_id, response.callback_text)
     if response.edit_message_id is not None:
-        api.edit_message_text(
-            response.chat_id,
-            response.edit_message_id,
-            response.text,
-            reply_markup=response.reply_markup,
-        )
+        try:
+            api.edit_message_text(
+                response.chat_id,
+                response.edit_message_id,
+                response.text,
+                reply_markup=response.reply_markup,
+            )
+        except Exception:
+            logger.exception("failed to edit message, falling back to send_message")
+            api.send_message(response.chat_id, response.text, reply_markup=response.reply_markup)
     else:
         api.send_message(response.chat_id, response.text, reply_markup=response.reply_markup)
 

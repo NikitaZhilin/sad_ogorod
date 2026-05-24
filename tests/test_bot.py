@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ogorodom_bot.bot import BotApplication, IncomingCallback, IncomingMessage
+from ogorodom_bot.bot import BotApplication, IncomingCallback, IncomingMessage, BotResponse, _dispatch_response
 from ogorodom_bot.db.connection import connect
 from ogorodom_bot.db.migrations import apply_migrations
 from ogorodom_bot.repositories.dialogs import DialogStateRepository
@@ -29,6 +29,11 @@ class DummyApi:
     def answer_callback_query(self, callback_query_id: str, text: str | None = None):
         self.answered.append((callback_query_id, text))
         return {"ok": True}
+
+
+class FailingEditApi(DummyApi):
+    def edit_message_text(self, chat_id: int, message_id: int, text: str, reply_markup=None):
+        raise RuntimeError("edit failed")
 
 
 class BotHandlerTests(unittest.TestCase):
@@ -186,6 +191,22 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(zones[0]["plot_id"], 1)
         self.assertEqual(plantings[0]["zone_id"], 1)
         self.assertEqual(plantings[0]["variety"], "Черри")
+
+    def test_dispatch_falls_back_to_send_when_edit_fails(self) -> None:
+        api = FailingEditApi()
+        response = BotResponse(
+            chat_id=100,
+            text="Обновленный список",
+            reply_markup={"inline_keyboard": []},
+            edit_message_id=10,
+            answer_callback_query_id="cb1",
+        )
+
+        with self.assertLogs("ogorodom_bot.bot", level="ERROR"):
+            _dispatch_response(api, response)
+
+        self.assertEqual(api.answered[0][0], "cb1")
+        self.assertEqual(api.sent[0][1], "Обновленный список")
 
 
 def _keyboard_labels(markup: dict | None) -> list[str]:
