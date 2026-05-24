@@ -1,0 +1,9 @@
+[project]
+name = "ogorodom-bot"
+version = "0.1.0"
+description = "Telegram bot for garden tasks, reminders, journals and plantings."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.unittest]
+start-directory = "tests"

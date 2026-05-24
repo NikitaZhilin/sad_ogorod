@@ -1,0 +1,2 @@
+# Runtime dependencies are intentionally empty.
+# The bot uses Python standard library + Telegram Bot HTTP API.

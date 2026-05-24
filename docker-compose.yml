@@ -1,0 +1,32 @@
+services:
+  ogorodom-bot:
+    build: .
+    image: ogorodom-bot:latest
+    container_name: ogorodom-bot
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+    command: ["python", "-m", "ogorodom_bot.bot"]
+    volumes:
+      - ogorodom_data:/app/data
+      - ogorodom_backups:/app/backups
+    restart: unless-stopped
+
+  ogorodom-worker:
+    build: .
+    image: ogorodom-bot:latest
+    container_name: ogorodom-worker
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+    command: ["python", "-m", "ogorodom_bot.worker"]
+    volumes:
+      - ogorodom_data:/app/data
+      - ogorodom_backups:/app/backups
+    restart: unless-stopped
+
+volumes:
+  ogorodom_data:
+  ogorodom_backups:
