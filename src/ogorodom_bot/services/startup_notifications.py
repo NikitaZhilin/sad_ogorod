@@ -51,5 +51,5 @@ def build_startup_update_message(settings: Settings) -> str:
         parts.append(settings.startup_update_message.strip())
     if settings.testing_notice_enabled and settings.testing_notice_text.strip():
         parts.append(settings.testing_notice_text.strip())
-    parts.append("Главное меню открыто. Используйте кнопки ниже для навигации.")
+    parts.append("Главное меню открыто ниже. Если кнопки не появились, отправьте /start.")
     return "\n\n".join(parts)

@@ -26,7 +26,6 @@ def main_menu() -> dict[str, Any]:
             ["Все задачи", "Огород"],
             ["Журнал", "Справочник"],
             ["Настройки", "Помощь"],
-            ["Отмена"],
         ]
     )
 
@@ -103,7 +102,7 @@ def task_details(task_id: int) -> dict[str, Any]:
 def task_edit_menu(task_id: int) -> dict[str, Any]:
     return inline_keyboard(
         [
-            [("Название", f"task:edit_title:{task_id}"), ("Срок", f"task:edit_due:{task_id}")],
+            [("Название", f"task:edit_title:{task_id}"), ("Когда сделать", f"task:edit_due:{task_id}")],
             [("Описание", f"task:edit_desc:{task_id}"), ("Место", f"task:edit_loc:{task_id}")],
             [("Повтор", f"task:edit_repeat:{task_id}")],
             [("К задаче", f"task:details:{task_id}")],
@@ -320,6 +319,16 @@ def plant_type_menu() -> dict[str, Any]:
             [("Овощи/ягоды", "planttype:plant"), ("Кустарник", "planttype:shrub")],
             [("Цветы/декор", "planttype:ornamental"), ("Дерево", "planttype:tree")],
             [("Другое", "planttype:other")],
+            [("Отмена", "dialog:cancel")],
+        ]
+    )
+
+
+def planting_date_menu() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Этот месяц", "planting:date:this_month"), ("Прошлый месяц", "planting:date:last_month")],
+            [("Ввести месяц/дату", "planting:date:custom"), ("Не знаю", "planting:date:unknown")],
             [("Отмена", "dialog:cancel")],
         ]
     )

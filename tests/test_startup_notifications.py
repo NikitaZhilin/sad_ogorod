@@ -49,7 +49,7 @@ class StartupNotificationTests(unittest.TestCase):
         self.assertIn("Бот обновлен до версии 0.6.0-beta", message)
         self.assertIn("Добавлено редактирование задач", message)
         self.assertIn("бета-тестировании", message)
-        self.assertIn("Главное меню открыто", message)
+        self.assertIn("Главное меню открыто ниже. Если кнопки не появились, отправьте /start.", message)
 
     def test_startup_notification_sent_once_per_version(self) -> None:
         settings = replace(

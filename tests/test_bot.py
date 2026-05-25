@@ -105,6 +105,7 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("Все задачи", labels)
         self.assertIn("Огород", labels)
         self.assertIn("Настройки", labels)
+        self.assertNotIn("Отмена", labels)
 
     def test_tasks_button_opens_task_list(self) -> None:
         self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
@@ -288,6 +289,7 @@ class BotHandlerTests(unittest.TestCase):
 
         self.assertIn("task:edit:1", _inline_callbacks(details.reply_markup))
         self.assertIn("Что изменить", edit_menu.text)
+        self.assertIn("Когда сделать", _inline_labels(edit_menu.reply_markup))
         self.assertIn("Новое название", renamed.text)
         self.assertIn("Новое описание", described.text)
         self.assertIn("без срока", changed_due.text)
@@ -357,8 +359,8 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_callback(self.callback("zone:plot:1"))
         self.bot.handle_callback(self.callback("planting:add"))
         type_prompt = self.bot.handle_callback(self.callback("planttype:plant"))
-        self.bot.handle_message(self.message("Томат"))
-        date_prompt = self.bot.handle_message(self.message("2026-05-25"))
+        date_menu = self.bot.handle_message(self.message("Томат"))
+        date_prompt = self.bot.handle_message(self.message("май 2026"))
         self.bot.handle_callback(self.callback("planting:loc:z:1"))
 
         with connect(self.app_state.db_path) as conn:
@@ -372,7 +374,9 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(plantings[0]["zone_id"], 1)
         self.assertEqual(plantings[0]["plot_id"], 1)
         self.assertIsNone(plantings[0]["variety"])
+        self.assertEqual(plantings[0]["planted_on"], "май 2026")
         self.assertIn("Клубника", type_prompt.text)
+        self.assertIn("planting:date:this_month", _inline_callbacks(date_menu.reply_markup))
         self.assertIn("участок или зону", date_prompt.text)
 
     def test_garden_plot_and_zone_can_be_renamed_and_deleted(self) -> None:
@@ -454,7 +458,7 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_callback(self.callback("planting:add"))
         self.bot.handle_callback(self.callback("planttype:ornamental"))
         self.bot.handle_message(self.message("Роза"))
-        self.bot.handle_message(self.message("2026-05-25"))
+        self.bot.handle_callback(self.callback("planting:date:unknown"))
         created_planting = self.bot.handle_callback(self.callback("planting:loc:z:1"))
         details = self.bot.handle_callback(self.callback("planting:details:1"))
         ideas = self.bot.handle_callback(self.callback("ref:planting_tasks:1"))
@@ -504,6 +508,16 @@ def _inline_callbacks(markup: dict | None) -> list[str]:
         return []
     return [
         button["callback_data"]
+        for row in markup.get("inline_keyboard", [])
+        for button in row
+    ]
+
+
+def _inline_labels(markup: dict | None) -> list[str]:
+    if not markup:
+        return []
+    return [
+        button["text"]
         for row in markup.get("inline_keyboard", [])
         for button in row
     ]

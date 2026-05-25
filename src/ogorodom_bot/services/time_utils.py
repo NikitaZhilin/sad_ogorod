@@ -4,6 +4,48 @@ import re
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+MONTH_NAMES = {
+    1: "январь",
+    2: "февраль",
+    3: "март",
+    4: "апрель",
+    5: "май",
+    6: "июнь",
+    7: "июль",
+    8: "август",
+    9: "сентябрь",
+    10: "октябрь",
+    11: "ноябрь",
+    12: "декабрь",
+}
+
+MONTH_NUMBERS = {
+    "январь": 1,
+    "января": 1,
+    "февраль": 2,
+    "февраля": 2,
+    "март": 3,
+    "марта": 3,
+    "апрель": 4,
+    "апреля": 4,
+    "май": 5,
+    "мая": 5,
+    "июнь": 6,
+    "июня": 6,
+    "июль": 7,
+    "июля": 7,
+    "август": 8,
+    "августа": 8,
+    "сентябрь": 9,
+    "сентября": 9,
+    "октябрь": 10,
+    "октября": 10,
+    "ноябрь": 11,
+    "ноября": 11,
+    "декабрь": 12,
+    "декабря": 12,
+}
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
@@ -41,6 +83,67 @@ def format_local_datetime(raw: str | None, timezone_name: str) -> str:
         return "без срока"
     dt = parse_iso(raw)
     return dt.astimezone(ZoneInfo(timezone_name)).strftime("%d.%m.%Y %H:%M")
+
+
+def format_month(year: int, month: int) -> str:
+    return f"{MONTH_NAMES[month]} {year}"
+
+
+def parse_planting_date(raw: str, timezone_name: str) -> str | None:
+    value = raw.strip().lower()
+    value = value.rstrip(".,; ")
+    value = re.sub(r"\s+", " ", value)
+    if value in {"", "-", "не знаю", "неизвестно"}:
+        return None
+
+    tz = ZoneInfo(timezone_name)
+    current_year = datetime.now(tz).year
+
+    match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", value)
+    if match:
+        year, month, day = map(int, match.groups())
+        datetime(year, month, day)
+        return f"{day:02d}.{month:02d}.{year}"
+
+    match = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", value)
+    if match:
+        day, month, year = map(int, match.groups())
+        datetime(year, month, day)
+        return f"{day:02d}.{month:02d}.{year}"
+
+    match = re.match(r"^(\d{1,2})\.(\d{1,2})$", value)
+    if match:
+        day, month = map(int, match.groups())
+        datetime(current_year, month, day)
+        return f"{day:02d}.{month:02d}.{current_year}"
+
+    match = re.match(r"^(\d{4})-(\d{1,2})$", value)
+    if match:
+        year, month = map(int, match.groups())
+        if not 1 <= month <= 12:
+            raise ValueError("month must be 1..12")
+        return format_month(year, month)
+
+    match = re.match(r"^(\d{1,2})\.(\d{4})$", value)
+    if match:
+        month, year = map(int, match.groups())
+        if not 1 <= month <= 12:
+            raise ValueError("month must be 1..12")
+        return format_month(year, month)
+
+    match = re.match(r"^([а-яё]+)(?:\s+(\d{4}))?$", value)
+    if match:
+        month_name, year_raw = match.groups()
+        month = MONTH_NUMBERS.get(month_name)
+        if month is None:
+            raise ValueError("unknown month")
+        year = int(year_raw) if year_raw else current_year
+        return format_month(year, month)
+
+    if re.match(r"^\d{4}$", value):
+        return value
+
+    raise ValueError("unsupported planting date")
 
 
 def local_day_bounds(timezone_name: str, day_offset: int = 0) -> tuple[datetime, datetime]:

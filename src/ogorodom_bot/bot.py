@@ -22,9 +22,11 @@ from ogorodom_bot.services.startup_notifications import StartupNotificationServi
 from ogorodom_bot.services.startup_backup import StartupBackupService
 from ogorodom_bot.services.tasks import TaskService
 from ogorodom_bot.services.time_utils import (
+    format_month,
     format_local_datetime,
     iso,
     parse_local_datetime,
+    parse_planting_date,
     parse_wait_until,
 )
 from ogorodom_bot.services.users import UserService
@@ -269,7 +271,7 @@ class BotApplication:
             )
         if text.startswith("/planting "):
             return BotResponse(
-                chat_id, self._create_planting(conn, user["id"], text[len("/planting ") :])
+                chat_id, self._create_planting(conn, user, text[len("/planting ") :])
             )
         if text == "/plantings":
             return BotResponse(
@@ -357,7 +359,7 @@ class BotApplication:
             dialog.set(user["id"], "task_edit_due_at", {"task_id": task_id})
             return BotResponse(
                 chat_id,
-                "Выберите новый срок или введите дату сообщением.",
+                "Когда нужно сделать задачу?\n\nЭта кнопка меняет дату и время выполнения, по которым задача попадает в «Сегодня» и получает напоминание.",
                 keyboards.task_due_menu(),
             )
         if data.startswith("task:edit_desc:"):
@@ -413,9 +415,9 @@ class BotApplication:
                 task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
                 return BotResponse(
                     chat_id,
-                    messages.task_card(task, user["timezone"]) if task else "Срок обновлен.",
+                    messages.task_card(task, user["timezone"]) if task else "Дата задачи обновлена.",
                     keyboards.task_details(int(payload["task_id"])),
-                    callback_text="Срок обновлен",
+                    callback_text="Дата обновлена",
                 )
             payload["due_at"] = due_at
             if due_at is None:
@@ -686,6 +688,20 @@ class BotApplication:
                 "Введите понятное название.\n\nНапример: Клубника, Помидоры, Розы у беседки.",
                 keyboards.cancel_inline(),
             )
+        if data.startswith("planting:date:"):
+            option = data.rsplit(":", 1)[1]
+            dialog_state = dialog.get(user["id"])
+            if not dialog_state or dialog_state["state"] != "planting_wait_date":
+                return BotResponse(chat_id, "Диалог создания насаждения не найден.", keyboards.main_menu())
+            payload = dict(dialog_state["payload"])
+            if option == "custom":
+                return BotResponse(
+                    chat_id,
+                    "Введите дату или месяц посадки.\n\nПодойдут варианты: май, май 2026, 05.2026, 2026-05, 25.05.2026.",
+                    keyboards.cancel_inline(),
+                )
+            payload["planted_on"] = _planting_date_from_option(option, user["timezone"])
+            return self._planting_location_step(conn, user, chat_id, payload)
         if data.startswith("planting:loc:"):
             dialog_state = dialog.get(user["id"])
             if not dialog_state or dialog_state["state"] != "planting_wait_location":
@@ -872,7 +888,7 @@ class BotApplication:
             task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
             return BotResponse(
                 chat_id,
-                messages.task_card(task, user["timezone"]) if task else "Срок обновлен.",
+                messages.task_card(task, user["timezone"]) if task else "Дата задачи обновлена.",
                 keyboards.task_details(int(payload["task_id"])),
             )
         if state_name == "task_edit_description":
@@ -983,37 +999,27 @@ class BotApplication:
             dialog.set(user["id"], "planting_wait_date", payload)
             return BotResponse(
                 chat_id,
-                "Введите дату посадки в формате YYYY-MM-DD или '-' если дата неизвестна.",
-                keyboards.cancel_inline(),
+                "Когда посадили?\n\nМожно выбрать кнопку или написать месяц/дату: май, май 2026, 05.2026, 2026-05, 25.05.2026. Если не помните, нажмите «Не знаю».",
+                keyboards.planting_date_menu(),
             )
         if state_name == "planting_wait_variety":
             payload["variety"] = None if text == "-" else text
             dialog.set(user["id"], "planting_wait_date", payload)
             return BotResponse(
                 chat_id,
-                "Введите дату посадки YYYY-MM-DD или '-' если дата неизвестна.",
-                keyboards.cancel_inline(),
+                "Когда посадили?\n\nМожно выбрать кнопку или написать месяц/дату: май, май 2026, 05.2026, 2026-05, 25.05.2026. Если не помните, нажмите «Не знаю».",
+                keyboards.planting_date_menu(),
             )
         if state_name == "planting_wait_date":
-            payload["planted_on"] = None if text == "-" else text
-            zones = garden.list_zones(user["id"])
-            plots = garden.list_plots(user["id"])
-            if not zones and not plots:
-                planting_id = garden.add_planting(
-                    user["id"],
-                    payload["name"],
-                    variety=payload.get("variety"),
-                    planted_on=payload.get("planted_on"),
-                    plant_type=payload.get("plant_type", "plant"),
+            try:
+                payload["planted_on"] = parse_planting_date(text, user["timezone"])
+            except ValueError:
+                return BotResponse(
+                    chat_id,
+                    "Не удалось понять дату посадки.\n\nНапишите месяц или дату: май, май 2026, 05.2026, 2026-05, 25.05.2026. Можно отправить '-' если дата неизвестна.",
+                    keyboards.planting_date_menu(),
                 )
-                dialog.clear(user["id"])
-                return BotResponse(chat_id, f"Насаждение #{planting_id} добавлено.", keyboards.main_menu())
-            dialog.set(user["id"], "planting_wait_location", payload)
-            return BotResponse(
-                chat_id,
-                "Выберите участок или зону для насаждения.",
-                keyboards.choose_planting_location(zones, plots),
-            )
+            return self._planting_location_step(conn, user, chat_id, payload)
         if state_name == "settings_wait_quiet_start":
             if not _valid_time(text):
                 return BotResponse(chat_id, "Введите время в формате HH:MM.", keyboards.cancel_inline())
@@ -1146,6 +1152,28 @@ class BotApplication:
             chat_id,
             "Где нужно выполнить задачу?\n\nВыберите насаждение, зону или участок. Можно оставить без привязки.",
             keyboards.task_location_menu_with_plantings(zones, plots, plantings),
+        )
+
+    def _planting_location_step(self, conn, user: dict, chat_id: int, payload: dict) -> BotResponse:
+        dialog = DialogStateService(conn)
+        garden = GardenService(conn)
+        zones = garden.list_zones(user["id"])
+        plots = garden.list_plots(user["id"])
+        if not zones and not plots:
+            planting_id = garden.add_planting(
+                user["id"],
+                payload["name"],
+                variety=payload.get("variety"),
+                planted_on=payload.get("planted_on"),
+                plant_type=payload.get("plant_type", "plant"),
+            )
+            dialog.clear(user["id"])
+            return BotResponse(chat_id, f"Насаждение #{planting_id} добавлено.", keyboards.main_menu())
+        dialog.set(user["id"], "planting_wait_location", payload)
+        return BotResponse(
+            chat_id,
+            "Выберите участок или зону для насаждения.",
+            keyboards.choose_planting_location(zones, plots),
         )
 
     def _parse_location_callback(
@@ -1292,18 +1320,25 @@ class BotApplication:
             return f"Задача #{task_id} закрыта, создан повтор #{next_id}"
         return f"Задача #{task_id} закрыта"
 
-    def _create_planting(self, conn, user_id: int, payload: str) -> str:
+    def _create_planting(self, conn, user: dict, payload: str) -> str:
         parts = [part.strip() for part in payload.split("|")]
         name = parts[0]
         variety = None
         planted_on = None
-        if len(parts) == 2 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[1]):
-            planted_on = parts[1]
+        if len(parts) == 2:
+            try:
+                planted_on = parse_planting_date(parts[1], user["timezone"])
+            except ValueError:
+                variety = parts[1] if parts[1] else None
         else:
             variety = parts[1] if len(parts) > 1 and parts[1] else None
-            planted_on = parts[2] if len(parts) > 2 and parts[2] else None
+            if len(parts) > 2 and parts[2]:
+                try:
+                    planted_on = parse_planting_date(parts[2], user["timezone"])
+                except ValueError:
+                    return "Не удалось понять дату посадки. Используйте: май, май 2026, 05.2026 или 2026-05-25."
         planting_id = GardenService(conn).add_planting(
-            user_id, name=name, variety=variety, planted_on=planted_on, plant_type="plant"
+            user["id"], name=name, variety=variety, planted_on=planted_on, plant_type="plant"
         )
         return f"Насаждение #{planting_id} добавлено"
 
@@ -1358,6 +1393,23 @@ def _due_at_from_option(option: str, timezone_name: str) -> str | None:
         target = datetime.combine(now.date() + timedelta(days=1), dt_time(18, 0), tzinfo=tz)
         return iso(target.astimezone(timezone.utc))
     raise ValueError("unsupported due option")
+
+
+def _planting_date_from_option(option: str, timezone_name: str) -> str | None:
+    if option == "unknown":
+        return None
+    tz = ZoneInfo(timezone_name)
+    now = datetime.now(tz)
+    year = now.year
+    month = now.month
+    if option == "last_month":
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    elif option != "this_month":
+        raise ValueError("unsupported planting date option")
+    return format_month(year, month)
 
 
 def _valid_time(value: str) -> bool:
