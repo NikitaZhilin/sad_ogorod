@@ -74,17 +74,29 @@ class GardenService:
         user_id: int,
         name: str,
         variety: str | None = None,
+        plot_id: int | None = None,
         zone_id: int | None = None,
+        plant_type: str = "plant",
         planted_on: str | None = None,
         notes: str | None = None,
     ) -> int:
         planting_id = self.repo.create_planting(
-            user_id, name, variety=variety, zone_id=zone_id, planted_on=planted_on, notes=notes
+            user_id,
+            name,
+            variety=variety,
+            plot_id=plot_id,
+            zone_id=zone_id,
+            plant_type=plant_type,
+            planted_on=planted_on,
+            notes=notes,
         )
         self.journal.create(
-            user_id, "planting_created", f"Добавлена посадка: {name}", "planting", planting_id
+            user_id, "planting_created", f"Добавлено насаждение: {name}", "planting", planting_id
         )
         return planting_id
 
     def list_plantings(self, user_id: int) -> list[dict]:
         return self.repo.list_plantings(user_id)
+
+    def get_planting(self, user_id: int, planting_id: int) -> dict | None:
+        return self.repo.get_planting(user_id, planting_id)

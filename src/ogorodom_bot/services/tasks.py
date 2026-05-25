@@ -102,12 +102,23 @@ class TaskService:
         self.journal.create(user_id, "task_updated", f"Изменено описание задачи: {task['title']}", "task", task_id)
 
     def update_location(
-        self, user_id: int, task_id: int, plot_id: int | None, zone_id: int | None
+        self,
+        user_id: int,
+        task_id: int,
+        plot_id: int | None,
+        zone_id: int | None,
+        planting_id: int | None = None,
     ) -> None:
         task = self.tasks.get(task_id, user_id)
         if task is None:
             raise ValueError("task not found")
-        if zone_id is not None:
+        if planting_id is not None:
+            planting = self.garden.get_planting(user_id, planting_id)
+            if planting is None:
+                raise ValueError("planting not found")
+            plot_id = planting["plot_id"]
+            zone_id = planting["zone_id"]
+        elif zone_id is not None:
             zone = self.garden.get_zone(user_id, zone_id)
             if zone is None:
                 raise ValueError("zone not found")
@@ -119,6 +130,7 @@ class TaskService:
             user_id,
             plot_id=plot_id,
             zone_id=zone_id,
+            planting_id=planting_id,
             set_location=True,
         )
         self.journal.create(user_id, "task_updated", f"Изменена привязка задачи: {task['title']}", "task", task_id)

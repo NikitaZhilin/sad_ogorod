@@ -49,6 +49,7 @@ class StartupNotificationTests(unittest.TestCase):
         self.assertIn("Бот обновлен до версии 0.6.0-beta", message)
         self.assertIn("Добавлено редактирование задач", message)
         self.assertIn("бета-тестировании", message)
+        self.assertIn("Главное меню открыто", message)
 
     def test_startup_notification_sent_once_per_version(self) -> None:
         settings = replace(
@@ -68,6 +69,13 @@ class StartupNotificationTests(unittest.TestCase):
         self.assertEqual(second["sent"], 0)
         self.assertEqual(len(api.sent), 1)
         self.assertIn("0.6.0-beta", api.sent[0][1])
+        self.assertIn("Новая задача", _keyboard_labels(api.sent[0][2]))
+
+
+def _keyboard_labels(markup: dict | None) -> list[str]:
+    if not markup:
+        return []
+    return [button["text"] for row in markup.get("keyboard", []) for button in row]
 
 
 if __name__ == "__main__":

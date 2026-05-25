@@ -132,7 +132,22 @@ def task_description_menu() -> dict[str, Any]:
 
 
 def task_location_menu(zones: list[dict], plots: list[dict]) -> dict[str, Any]:
+    return task_location_menu_with_plantings(zones, plots, [])
+
+
+def task_location_menu_with_plantings(
+    zones: list[dict], plots: list[dict], plantings: list[dict]
+) -> dict[str, Any]:
     rows: list[list[tuple[str, str]]] = []
+    for planting in plantings:
+        prefix = ""
+        if planting.get("plot_name") and planting.get("zone_name"):
+            prefix = f"{planting['plot_name']} / {planting['zone_name']} / "
+        elif planting.get("plot_name"):
+            prefix = f"{planting['plot_name']} / "
+        elif planting.get("zone_name"):
+            prefix = f"{planting['zone_name']} / "
+        rows.append([(f"{prefix}{planting['name']}", f"task:loc:pl:{planting['id']}")])
     for zone in zones:
         prefix = f"{zone['plot_name']} / " if zone.get("plot_name") else ""
         rows.append([(f"{prefix}{zone['name']}", f"task:loc:z:{zone['id']}")])
@@ -145,7 +160,13 @@ def task_location_menu(zones: list[dict], plots: list[dict]) -> dict[str, Any]:
 
 
 def edit_task_location_menu(task_id: int, zones: list[dict], plots: list[dict]) -> dict[str, Any]:
-    base = task_location_menu(zones, plots)["inline_keyboard"]
+    return edit_task_location_menu_with_plantings(task_id, zones, plots, [])
+
+
+def edit_task_location_menu_with_plantings(
+    task_id: int, zones: list[dict], plots: list[dict], plantings: list[dict]
+) -> dict[str, Any]:
+    base = task_location_menu_with_plantings(zones, plots, plantings)["inline_keyboard"]
     rows: list[list[tuple[str, str]]] = []
     for row in base:
         converted = []
@@ -189,7 +210,7 @@ def garden_menu() -> dict[str, Any]:
     return inline_keyboard(
         [
             [("Участки", "garden:plots"), ("Зоны", "garden:zones")],
-            [("Посадки", "garden:plantings")],
+            [("Насаждения", "garden:plantings")],
         ]
     )
 
@@ -270,8 +291,15 @@ def reference_menu() -> dict[str, Any]:
 
 def location_task_ideas_menu(kind: str, item_id: int) -> dict[str, Any]:
     details_callback = f"{kind}:details:{item_id}"
-    back_text = "К участку" if kind == "plot" else "К зоне"
-    callback_kind = "p" if kind == "plot" else "z"
+    if kind == "plot":
+        back_text = "К участку"
+        callback_kind = "p"
+    elif kind == "zone":
+        back_text = "К зоне"
+        callback_kind = "z"
+    else:
+        back_text = "К насаждению"
+        callback_kind = "pl"
     return inline_keyboard(
         [
             [("Полить", f"idea:{callback_kind}:{item_id}:water"), ("Прополоть", f"idea:{callback_kind}:{item_id}:weed")],
@@ -282,6 +310,38 @@ def location_task_ideas_menu(kind: str, item_id: int) -> dict[str, Any]:
             [("Убрать сухие листья", f"idea:{callback_kind}:{item_id}:clean")],
             [(back_text, details_callback)],
             [("К справочнику", "menu:reference"), ("В меню", "menu:main")],
+        ]
+    )
+
+
+def plant_type_menu() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Растение", "planttype:plant"), ("Кустарник", "planttype:shrub")],
+            [("Декоративное", "planttype:ornamental"), ("Дерево", "planttype:tree")],
+            [("Другое", "planttype:other")],
+            [("Отмена", "dialog:cancel")],
+        ]
+    )
+
+
+def choose_planting_location(zones: list[dict], plots: list[dict]) -> dict[str, Any]:
+    rows: list[list[tuple[str, str]]] = []
+    for zone in zones:
+        prefix = f"{zone['plot_name']} / " if zone.get("plot_name") else ""
+        rows.append([(f"{prefix}{zone['name']}", f"planting:loc:z:{zone['id']}")])
+    for plot in plots:
+        rows.append([(plot["name"], f"planting:loc:p:{plot['id']}")])
+    rows.append([("Без привязки", "planting:loc:none")])
+    rows.append([("Отмена", "dialog:cancel")])
+    return inline_keyboard(rows)
+
+
+def planting_details(planting_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Что сделать здесь", f"ref:planting_tasks:{planting_id}")],
+            [("К насаждениям", "garden:plantings")],
         ]
     )
 

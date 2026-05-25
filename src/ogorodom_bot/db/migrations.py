@@ -172,6 +172,13 @@ MIGRATIONS: list[tuple[str, str]] = [
         );
         """,
     ),
+    (
+        "0005_planting_locations_and_types",
+        """
+        ALTER TABLE plantings ADD COLUMN plot_id INTEGER REFERENCES plots(id) ON DELETE SET NULL;
+        ALTER TABLE plantings ADD COLUMN plant_type TEXT NOT NULL DEFAULT 'plant';
+        """,
+    ),
 ]
 
 

@@ -7,7 +7,9 @@ class TaskRepository(Repository):
     TASK_SELECT = """
         t.*,
         p.name AS plot_name,
-        z.name AS zone_name
+        z.name AS zone_name,
+        pl.name AS planting_name,
+        pl.plant_type AS planting_type
     """
 
     def create(
@@ -55,6 +57,7 @@ class TaskRepository(Repository):
                 FROM tasks t
                 LEFT JOIN plots p ON p.id = t.plot_id
                 LEFT JOIN zones z ON z.id = t.zone_id
+                LEFT JOIN plantings pl ON pl.id = t.planting_id
                 WHERE t.id = ?
                 """,
                 (task_id,),
@@ -66,6 +69,7 @@ class TaskRepository(Repository):
                 FROM tasks t
                 LEFT JOIN plots p ON p.id = t.plot_id
                 LEFT JOIN zones z ON z.id = t.zone_id
+                LEFT JOIN plantings pl ON pl.id = t.planting_id
                 WHERE t.id = ? AND t.user_id = ?
                 """,
                 (task_id, user_id),
@@ -75,10 +79,12 @@ class TaskRepository(Repository):
     def list_open(self, user_id: int, limit: int = 20) -> list[dict]:
         rows = self.conn.execute(
             """
-            SELECT t.*, p.name AS plot_name, z.name AS zone_name
+            SELECT t.*, p.name AS plot_name, z.name AS zone_name,
+                   pl.name AS planting_name, pl.plant_type AS planting_type
             FROM tasks t
             LEFT JOIN plots p ON p.id = t.plot_id
             LEFT JOIN zones z ON z.id = t.zone_id
+            LEFT JOIN plantings pl ON pl.id = t.planting_id
             WHERE t.user_id = ? AND t.status IN ('open', 'active', 'snoozed')
             ORDER BY COALESCE(t.due_at, '9999-12-31T23:59:59'), t.id
             LIMIT ?
@@ -117,10 +123,12 @@ class TaskRepository(Repository):
     def list_today(self, user_id: int, end_iso: str, limit: int = 50) -> list[dict]:
         rows = self.conn.execute(
             """
-            SELECT t.*, p.name AS plot_name, z.name AS zone_name
+            SELECT t.*, p.name AS plot_name, z.name AS zone_name,
+                   pl.name AS planting_name, pl.plant_type AS planting_type
             FROM tasks t
             LEFT JOIN plots p ON p.id = t.plot_id
             LEFT JOIN zones z ON z.id = t.zone_id
+            LEFT JOIN plantings pl ON pl.id = t.planting_id
             WHERE t.user_id = ?
               AND t.status IN ('open', 'active', 'snoozed')
               AND t.due_at IS NOT NULL
@@ -164,6 +172,7 @@ class TaskRepository(Repository):
         description: str | None = None,
         plot_id: int | None = None,
         zone_id: int | None = None,
+        planting_id: int | None = None,
         clear_due: bool = False,
         set_description: bool = False,
         set_location: bool = False,
@@ -191,6 +200,8 @@ class TaskRepository(Repository):
             values.append(plot_id)
             assignments.append("zone_id = ?")
             values.append(zone_id)
+            assignments.append("planting_id = ?")
+            values.append(planting_id)
         values.extend([task_id, user_id])
         self.conn.execute(
             f"""

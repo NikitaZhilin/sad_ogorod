@@ -40,7 +40,7 @@ HELP = """Огородом
 Сегодня - ближайшие дела.
 Новая задача - добавить задачу без команды.
 Все задачи - список и действия по задачам.
-Огород - участки, зоны и посадки.
+Огород - участки, зоны и насаждения.
 Журнал - записи работ.
 Настройки - уведомления и тихие часы.
 
@@ -274,7 +274,7 @@ class BotApplication:
         if text == "/plantings":
             return BotResponse(
                 chat_id,
-                self._format_items(GardenService(conn).list_plantings(user["id"]), "Посадки"),
+                self._format_items(GardenService(conn).list_plantings(user["id"]), "Насаждения"),
             )
         if text == "/journal":
             return BotResponse(chat_id, self._journal(conn, user["id"]))
@@ -372,10 +372,13 @@ class BotApplication:
             task_id = int(data.rsplit(":", 1)[1])
             zones = garden.list_zones(user["id"])
             plots = garden.list_plots(user["id"])
+            plantings = garden.list_plantings(user["id"])
             return BotResponse(
                 chat_id,
-                "Выберите участок или зону для задачи.",
-                keyboards.edit_task_location_menu(task_id, zones, plots),
+                "Выберите насаждение, участок или зону для задачи.",
+                keyboards.edit_task_location_menu_with_plantings(
+                    task_id, zones, plots, plantings
+                ),
             )
         if data.startswith("task:edit_repeat:"):
             task_id = int(data.rsplit(":", 1)[1])
@@ -448,8 +451,12 @@ class BotApplication:
             parts = data.split(":")
             task_id = int(parts[2])
             try:
-                plot_id, zone_id = self._parse_location_callback(conn, user["id"], parts[3:])
-                TaskService(conn).update_location(user["id"], task_id, plot_id, zone_id)
+                plot_id, zone_id, planting_id = self._parse_location_callback(
+                    conn, user["id"], parts[3:]
+                )
+                TaskService(conn).update_location(
+                    user["id"], task_id, plot_id, zone_id, planting_id
+                )
             except ValueError:
                 return BotResponse(chat_id, "Не удалось изменить место задачи.", keyboards.main_menu())
             task = TaskService(conn).get_task(user["id"], task_id)
@@ -550,6 +557,7 @@ class BotApplication:
                 remind_at=remind_at,
                 plot_id=payload.get("plot_id"),
                 zone_id=payload.get("zone_id"),
+                planting_id=payload.get("planting_id"),
             )
             dialog.clear(user["id"])
             return BotResponse(
@@ -578,22 +586,19 @@ class BotApplication:
             plantings = garden.list_plantings(user["id"])
             return BotResponse(
                 chat_id,
-                messages.garden_items("Посадки", plantings),
+                messages.garden_items("Насаждения", plantings),
                 keyboards.garden_list("plantings", plantings),
                 message_id,
             )
         if data.startswith("planting:details:"):
             planting_id = int(data.rsplit(":", 1)[1])
-            planting = next(
-                (row for row in garden.list_plantings(user["id"]) if row["id"] == planting_id),
-                None,
-            )
+            planting = garden.get_planting(user["id"], planting_id)
             if planting is None:
-                return BotResponse(chat_id, "Посадка не найдена.", keyboards.garden_menu())
+                return BotResponse(chat_id, "Насаждение не найдено.", keyboards.garden_menu())
             return BotResponse(
                 chat_id,
-                messages.garden_items("Посадка", [planting]),
-                keyboards.garden_list("plantings"),
+                messages.planting_card(planting),
+                keyboards.planting_details(planting_id),
                 message_id,
             )
         if data.startswith("plot:details:"):
@@ -642,12 +647,12 @@ class BotApplication:
                 garden.delete_zone(user["id"], zone_id)
             except ValueError:
                 return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
-            return BotResponse(chat_id, "Зона удалена. Посадки и задачи отвязаны от нее.", keyboards.garden_menu())
+            return BotResponse(chat_id, "Зона удалена. Насаждения и задачи отвязаны от нее.", keyboards.garden_menu())
         if data.startswith("zone:delete:"):
             zone_id = int(data.rsplit(":", 1)[1])
             return BotResponse(
                 chat_id,
-                "Удалить зону? Посадки и задачи не удалятся, но потеряют привязку к зоне.",
+                "Удалить зону? Насаждения и задачи не удалятся, но потеряют привязку к зоне.",
                 keyboards.confirm_delete_zone(zone_id),
                 message_id,
             )
@@ -667,12 +672,43 @@ class BotApplication:
             dialog.clear(user["id"])
             return BotResponse(chat_id, f"Зона #{zone_id} добавлена.", keyboards.main_menu())
         if data == "planting:add":
-            dialog.set(user["id"], "planting_wait_name", {})
-            return BotResponse(chat_id, "Введите культуру посадки.", keyboards.cancel_inline())
+            dialog.set(user["id"], "planting_wait_type", {})
+            return BotResponse(chat_id, "Выберите тип насаждения.", keyboards.plant_type_menu())
+        if data.startswith("planttype:"):
+            plant_type = data.rsplit(":", 1)[1]
+            dialog.set(user["id"], "planting_wait_name", {"plant_type": plant_type})
+            return BotResponse(chat_id, "Введите название насаждения.", keyboards.cancel_inline())
+        if data.startswith("planting:loc:"):
+            dialog_state = dialog.get(user["id"])
+            if not dialog_state or dialog_state["state"] != "planting_wait_location":
+                return BotResponse(chat_id, "Диалог создания насаждения не найден.", keyboards.main_menu())
+            payload = dialog_state["payload"]
+            location_raw = data.split(":")[2:]
+            plot_id = None
+            zone_id = None
+            if location_raw[0] == "p":
+                plot_id = int(location_raw[1])
+            elif location_raw[0] == "z":
+                zone_id = int(location_raw[1])
+                zone = garden.get_zone(user["id"], zone_id)
+                plot_id = zone["plot_id"] if zone else None
+            elif location_raw[0] != "none":
+                return BotResponse(chat_id, "Не удалось выбрать место насаждения.", keyboards.main_menu())
+            planting_id = garden.add_planting(
+                user["id"],
+                payload["name"],
+                variety=payload.get("variety"),
+                planted_on=payload.get("planted_on"),
+                plot_id=plot_id,
+                zone_id=zone_id,
+                plant_type=payload.get("plant_type", "plant"),
+            )
+            dialog.clear(user["id"])
+            return BotResponse(chat_id, f"Насаждение #{planting_id} добавлено.", keyboards.main_menu())
         if data.startswith("planting:zone:"):
             dialog_state = dialog.get(user["id"])
             if not dialog_state or dialog_state["state"] != "planting_wait_zone":
-                return BotResponse(chat_id, "Диалог создания посадки не найден.", keyboards.main_menu())
+                return BotResponse(chat_id, "Диалог создания насаждения не найден.", keyboards.main_menu())
             zone_raw = data.rsplit(":", 1)[1]
             zone_id = None if zone_raw == "none" else int(zone_raw)
             payload = dialog_state["payload"]
@@ -681,10 +717,12 @@ class BotApplication:
                 payload["name"],
                 variety=payload.get("variety"),
                 planted_on=payload.get("planted_on"),
+                plot_id=None,
                 zone_id=zone_id,
+                plant_type=payload.get("plant_type", "plant"),
             )
             dialog.clear(user["id"])
-            return BotResponse(chat_id, f"Посадка #{planting_id} добавлена.", keyboards.main_menu())
+            return BotResponse(chat_id, f"Насаждение #{planting_id} добавлено.", keyboards.main_menu())
         if data == "settings:notify:toggle":
             current = user_service.settings_for(user["id"])
             enabled = not bool(current["notifications_enabled"])
@@ -719,6 +757,17 @@ class BotApplication:
                 chat_id,
                 messages.location_task_ideas(zone["name"]),
                 keyboards.location_task_ideas_menu("zone", zone_id),
+                message_id,
+            )
+        if data.startswith("ref:planting_tasks:"):
+            planting_id = int(data.rsplit(":", 1)[1])
+            planting = garden.get_planting(user["id"], planting_id)
+            if planting is None:
+                return BotResponse(chat_id, "Насаждение не найдено.", keyboards.garden_menu())
+            return BotResponse(
+                chat_id,
+                messages.location_task_ideas(planting["name"]),
+                keyboards.location_task_ideas_menu("planting", planting_id),
                 message_id,
             )
         if data.startswith("idea:"):
@@ -921,8 +970,9 @@ class BotApplication:
             )
         if state_name == "planting_wait_name":
             if not text:
-                return BotResponse(chat_id, "Введите культуру посадки.", keyboards.cancel_inline())
-            dialog.set(user["id"], "planting_wait_variety", {"name": text})
+                return BotResponse(chat_id, "Введите название насаждения.", keyboards.cancel_inline())
+            payload["name"] = text
+            dialog.set(user["id"], "planting_wait_variety", payload)
             return BotResponse(chat_id, "Введите сорт или '-' если сорта нет.", keyboards.cancel_inline())
         if state_name == "planting_wait_variety":
             payload["variety"] = None if text == "-" else text
@@ -935,17 +985,23 @@ class BotApplication:
         if state_name == "planting_wait_date":
             payload["planted_on"] = None if text == "-" else text
             zones = garden.list_zones(user["id"])
-            if not zones:
+            plots = garden.list_plots(user["id"])
+            if not zones and not plots:
                 planting_id = garden.add_planting(
                     user["id"],
                     payload["name"],
                     variety=payload.get("variety"),
                     planted_on=payload.get("planted_on"),
+                    plant_type=payload.get("plant_type", "plant"),
                 )
                 dialog.clear(user["id"])
-                return BotResponse(chat_id, f"Посадка #{planting_id} добавлена.", keyboards.main_menu())
-            dialog.set(user["id"], "planting_wait_zone", payload)
-            return BotResponse(chat_id, "Выберите зону для посадки.", keyboards.choose_zone(zones))
+                return BotResponse(chat_id, f"Насаждение #{planting_id} добавлено.", keyboards.main_menu())
+            dialog.set(user["id"], "planting_wait_location", payload)
+            return BotResponse(
+                chat_id,
+                "Выберите участок или зону для насаждения.",
+                keyboards.choose_planting_location(zones, plots),
+            )
         if state_name == "settings_wait_quiet_start":
             if not _valid_time(text):
                 return BotResponse(chat_id, "Введите время в формате HH:MM.", keyboards.cancel_inline())
@@ -1028,6 +1084,18 @@ class BotApplication:
                     ),
                 }
             )
+        elif kind == "pl":
+            planting = garden.get_planting(user["id"], int(raw_id))
+            if planting is None:
+                raise ValueError("planting not found")
+            payload.update(
+                {
+                    "plot_id": planting["plot_id"],
+                    "zone_id": planting["zone_id"],
+                    "planting_id": planting["id"],
+                    "location_label": messages.planting_location_label(planting),
+                }
+            )
         else:
             raise ValueError("unknown idea location")
         DialogStateService(conn).set(user["id"], "task_wait_due_at", payload)
@@ -1049,9 +1117,11 @@ class BotApplication:
         garden = GardenService(conn)
         zones = garden.list_zones(user["id"])
         plots = garden.list_plots(user["id"])
-        if not zones and not plots:
+        plantings = garden.list_plantings(user["id"])
+        if not zones and not plots and not plantings:
             payload["plot_id"] = None
             payload["zone_id"] = None
+            payload["planting_id"] = None
             payload["location_label"] = "без привязки"
             DialogStateService(conn).set(user["id"], "task_wait_confirm", payload)
             return BotResponse(
@@ -1062,36 +1132,48 @@ class BotApplication:
         DialogStateService(conn).set(user["id"], "task_wait_location", payload)
         return BotResponse(
             chat_id,
-            "Где нужно выполнить задачу?\n\nВыберите зону или участок. Можно оставить без привязки.",
-            keyboards.task_location_menu(zones, plots),
+            "Где нужно выполнить задачу?\n\nВыберите насаждение, зону или участок. Можно оставить без привязки.",
+            keyboards.task_location_menu_with_plantings(zones, plots, plantings),
         )
 
     def _parse_location_callback(
         self, conn, user_id: int, parts: list[str]
-    ) -> tuple[int | None, int | None]:
+    ) -> tuple[int | None, int | None, int | None]:
         garden = GardenService(conn)
         if parts[0] == "none":
-            return None, None
+            return None, None, None
         if parts[0] == "p":
             plot_id = int(parts[1])
             if garden.get_plot(user_id, plot_id) is None:
                 raise ValueError("plot not found")
-            return plot_id, None
+            return plot_id, None, None
         if parts[0] == "z":
             zone_id = int(parts[1])
             zone = garden.get_zone(user_id, zone_id)
             if zone is None:
                 raise ValueError("zone not found")
-            return zone["plot_id"], zone_id
+            return zone["plot_id"], zone_id, None
+        if parts[0] == "pl":
+            planting_id = int(parts[1])
+            planting = garden.get_planting(user_id, planting_id)
+            if planting is None:
+                raise ValueError("planting not found")
+            return planting["plot_id"], planting["zone_id"], planting_id
         raise ValueError("unknown location")
 
     def _apply_location_payload(self, conn, user_id: int, payload: dict, data: str) -> None:
         parts = data.split(":")[2:]
-        plot_id, zone_id = self._parse_location_callback(conn, user_id, parts)
+        plot_id, zone_id, planting_id = self._parse_location_callback(conn, user_id, parts)
         garden = GardenService(conn)
         payload["plot_id"] = plot_id
         payload["zone_id"] = zone_id
-        if zone_id is not None:
+        payload["planting_id"] = planting_id
+        if planting_id is not None:
+            planting = garden.get_planting(user_id, planting_id)
+            payload["location_label"] = (
+                messages.planting_location_label(planting) if planting else "без привязки"
+            )
+        elif zone_id is not None:
             zone = garden.get_zone(user_id, zone_id)
             payload["location_label"] = (
                 f"{zone['plot_name']} / {zone['name']}" if zone and zone.get("plot_name") else zone["name"]
@@ -1204,9 +1286,9 @@ class BotApplication:
         variety = parts[1] if len(parts) > 1 and parts[1] else None
         planted_on = parts[2] if len(parts) > 2 and parts[2] else None
         planting_id = GardenService(conn).add_planting(
-            user_id, name=name, variety=variety, planted_on=planted_on
+            user_id, name=name, variety=variety, planted_on=planted_on, plant_type="plant"
         )
-        return f"Посадка #{planting_id} добавлена"
+        return f"Насаждение #{planting_id} добавлено"
 
     def _journal(self, conn, user_id: int) -> str:
         rows = TaskService(conn).journal.list_recent(user_id)

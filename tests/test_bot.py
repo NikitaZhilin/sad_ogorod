@@ -90,7 +90,7 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("Север", plots)
         self.assertIn("Зона #1 добавлена", zone)
         self.assertIn("Теплица", zones)
-        self.assertIn("Посадка #1 добавлена", planting)
+        self.assertIn("Насаждение #1 добавлено", planting)
         self.assertIn("Томат", plantings)
         self.assertIn("Quiet hours обновлены", quiet)
         self.assertIn("Уведомления выключены", notify)
@@ -356,10 +356,11 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_message(self.message("Теплица"))
         self.bot.handle_callback(self.callback("zone:plot:1"))
         self.bot.handle_callback(self.callback("planting:add"))
+        self.bot.handle_callback(self.callback("planttype:plant"))
         self.bot.handle_message(self.message("Томат"))
         self.bot.handle_message(self.message("Черри"))
         self.bot.handle_message(self.message("2026-05-25"))
-        self.bot.handle_callback(self.callback("planting:zone:1"))
+        self.bot.handle_callback(self.callback("planting:loc:z:1"))
 
         with connect(self.app_state.db_path) as conn:
             garden = GardenService(conn)
@@ -370,6 +371,7 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(plots[0]["name"], "Север")
         self.assertEqual(zones[0]["plot_id"], 1)
         self.assertEqual(plantings[0]["zone_id"], 1)
+        self.assertEqual(plantings[0]["plot_id"], 1)
         self.assertEqual(plantings[0]["variety"], "Черри")
 
     def test_garden_plot_and_zone_can_be_renamed_and_deleted(self) -> None:
@@ -439,6 +441,37 @@ class BotHandlerTests(unittest.TestCase):
         with connect(self.app_state.db_path) as conn:
             task = TaskService(conn).get_task(1, 1)
         self.assertEqual(task["title"], "Стрижка травы")
+        self.assertEqual(task["plot_id"], 1)
+        self.assertEqual(task["zone_id"], 1)
+
+    def test_planting_can_be_bound_to_zone_and_used_for_task(self) -> None:
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Север"))
+        self.bot.handle_callback(self.callback("zone:add"))
+        self.bot.handle_message(self.message("Цветник"))
+        self.bot.handle_callback(self.callback("zone:plot:1"))
+        self.bot.handle_callback(self.callback("planting:add"))
+        self.bot.handle_callback(self.callback("planttype:ornamental"))
+        self.bot.handle_message(self.message("Роза"))
+        self.bot.handle_message(self.message("Флорибунда"))
+        self.bot.handle_message(self.message("2026-05-25"))
+        created_planting = self.bot.handle_callback(self.callback("planting:loc:z:1"))
+        details = self.bot.handle_callback(self.callback("planting:details:1"))
+        ideas = self.bot.handle_callback(self.callback("ref:planting_tasks:1"))
+        prompt = self.bot.handle_callback(self.callback("idea:pl:1:treat"))
+        self.bot.handle_callback(self.callback("task:due:tomorrow_morning"))
+        self.bot.handle_callback(self.callback("task:repeat:none"))
+        confirm = self.bot.handle_callback(self.callback("task:desc:skip"))
+        self.bot.handle_callback(self.callback("task:create"))
+
+        self.assertIn("Насаждение #1 добавлено", created_planting.text)
+        self.assertIn("Тип: декоративное", details.text)
+        self.assertIn("idea:pl:1:treat", _inline_callbacks(ideas.reply_markup))
+        self.assertIn("Север / Цветник / Роза", prompt.text)
+        self.assertIn("Север / Цветник / Роза", confirm.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+        self.assertEqual(task["planting_id"], 1)
         self.assertEqual(task["plot_id"], 1)
         self.assertEqual(task["zone_id"], 1)
 

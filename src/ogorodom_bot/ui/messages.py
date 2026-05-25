@@ -11,6 +11,14 @@ REPEAT_LABELS = {
     "yearly": "каждый год",
 }
 
+PLANT_TYPE_LABELS = {
+    "plant": "растение",
+    "shrub": "кустарник",
+    "ornamental": "декоративное",
+    "tree": "дерево",
+    "other": "другое",
+}
+
 REFERENCE_TEXTS = {
     "watering": (
         "Полив\n\n"
@@ -54,7 +62,7 @@ TASK_IDEA_TITLES = {
 def welcome() -> str:
     return (
         "Огородом\n\n"
-        "Я помогу не забывать работы по участкам, посадкам и обработкам.\n\n"
+        "Я помогу не забывать работы по участкам, насаждениям и обработкам.\n\n"
         "Начните с кнопки «Новая задача» или откройте «Сегодня», чтобы увидеть ближайшие дела. "
         "Старые команды тоже работают."
     )
@@ -136,7 +144,7 @@ def task_confirmation(payload: dict, timezone_name: str) -> str:
 
 
 def garden_home() -> str:
-    return "Огород\n\nЗдесь хранятся участки, зоны и посадки. Выберите, что открыть."
+    return "Огород\n\nЗдесь хранятся участки, зоны и насаждения. Выберите, что открыть."
 
 
 def garden_items(title: str, rows: list[dict]) -> str:
@@ -151,6 +159,8 @@ def garden_items(title: str, rows: list[dict]) -> str:
             extra = f" ({row['zone_name']})"
         if row.get("variety"):
             extra += f", сорт: {row['variety']}"
+        if row.get("plant_type"):
+            extra += f", тип: {PLANT_TYPE_LABELS.get(row['plant_type'], row['plant_type'])}"
         lines.append(f"#{row['id']} {row['name']}{extra}")
     return "\n".join(lines)
 
@@ -168,6 +178,31 @@ def plot_card(plot: dict, zones: list[dict]) -> str:
 def zone_card(zone: dict) -> str:
     plot = zone.get("plot_name") or "без участка"
     return f"Зона #{zone['id']}\n{zone['name']}\nУчасток: {plot}"
+
+
+def planting_card(planting: dict) -> str:
+    plant_type = PLANT_TYPE_LABELS.get(planting.get("plant_type"), planting.get("plant_type") or "растение")
+    place = _location_value(planting)
+    variety = planting.get("variety") or "не указан"
+    planted_on = planting.get("planted_on") or "не указана"
+    return (
+        f"Насаждение #{planting['id']}\n"
+        f"{planting['name']}\n\n"
+        f"Тип: {plant_type}\n"
+        f"Место: {place}\n"
+        f"Сорт: {variety}\n"
+        f"Дата посадки: {planted_on}"
+    )
+
+
+def planting_location_label(planting: dict) -> str:
+    if planting.get("plot_name") and planting.get("zone_name"):
+        return f"{planting['plot_name']} / {planting['zone_name']} / {planting['name']}"
+    if planting.get("plot_name"):
+        return f"{planting['plot_name']} / {planting['name']}"
+    if planting.get("zone_name"):
+        return f"{planting['zone_name']} / {planting['name']}"
+    return planting["name"]
 
 
 def reference_home() -> str:
@@ -219,6 +254,12 @@ def settings(settings: dict, timezone_name: str) -> str:
 
 
 def _location_value(task: dict) -> str:
+    if task.get("planting_name") and task.get("zone_name") and task.get("plot_name"):
+        return f"{task['plot_name']} / {task['zone_name']} / {task['planting_name']}"
+    if task.get("planting_name") and task.get("plot_name"):
+        return f"{task['plot_name']} / {task['planting_name']}"
+    if task.get("planting_name"):
+        return task["planting_name"]
     if task.get("zone_name") and task.get("plot_name"):
         return f"{task['plot_name']} / {task['zone_name']}"
     if task.get("zone_name"):

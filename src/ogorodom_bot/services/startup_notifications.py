@@ -7,6 +7,7 @@ from ogorodom_bot.config import Settings
 from ogorodom_bot.repositories.startup import StartupBroadcastRepository
 from ogorodom_bot.repositories.users import UserRepository
 from ogorodom_bot.telegram_api import TelegramApi
+from ogorodom_bot.ui import keyboards
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,11 @@ class StartupNotificationService:
         failed = 0
         for user in self.users.list_all():
             try:
-                self.api.send_message(int(user["telegram_id"]), message)
+                self.api.send_message(
+                    int(user["telegram_id"]),
+                    message,
+                    reply_markup=keyboards.main_menu(),
+                )
             except Exception:
                 failed += 1
                 logger.exception("failed to send startup update user_id=%s", user["id"])
@@ -46,4 +51,5 @@ def build_startup_update_message(settings: Settings) -> str:
         parts.append(settings.startup_update_message.strip())
     if settings.testing_notice_enabled and settings.testing_notice_text.strip():
         parts.append(settings.testing_notice_text.strip())
+    parts.append("Главное меню открыто. Используйте кнопки ниже для навигации.")
     return "\n\n".join(parts)
