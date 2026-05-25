@@ -412,6 +412,11 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("Справочник", home.text)
         self.assertIn("Обработка", treatment.text)
         self.assertIn("Возможные задачи", ideas.text)
+        self.assertIn("Стрижка травы", ideas.text)
+        callbacks = _inline_callbacks(ideas.reply_markup)
+        self.assertIn("plot:details:1", callbacks)
+        self.assertIn("menu:reference", callbacks)
+        self.assertIn("menu:main", callbacks)
 
     def test_dispatch_falls_back_to_send_when_edit_fails(self) -> None:
         api = FailingEditApi()

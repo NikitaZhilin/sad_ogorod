@@ -263,6 +263,18 @@ def reference_menu() -> dict[str, Any]:
             [("Полив", "ref:watering"), ("Покос", "ref:mowing")],
             [("Обработка", "ref:treatment"), ("Прополка", "ref:weeding")],
             [("Подкормка", "ref:fertilizing"), ("Идеи задач", "ref:task_ideas")],
+            [("В меню", "menu:main")],
+        ]
+    )
+
+
+def location_task_ideas_menu(kind: str, item_id: int) -> dict[str, Any]:
+    details_callback = f"{kind}:details:{item_id}"
+    back_text = "К участку" if kind == "plot" else "К зоне"
+    return inline_keyboard(
+        [
+            [(back_text, details_callback)],
+            [("К справочнику", "menu:reference"), ("В меню", "menu:main")],
         ]
     )
 

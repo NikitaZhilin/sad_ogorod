@@ -308,8 +308,18 @@ class BotApplication:
             return self._tasks_response(conn, user["id"], chat_id, edit_message_id=message_id)
         if data in {"menu:today", "today:refresh"}:
             return self._today_response(conn, user, chat_id, edit_message_id=message_id)
+        if data == "menu:main":
+            return BotResponse(chat_id, "Главное меню.", keyboards.main_menu(), callback_text="Меню")
         if data == "menu:garden":
             return BotResponse(chat_id, messages.garden_home(), keyboards.garden_menu(), message_id)
+        if data == "menu:reference":
+            return BotResponse(
+                chat_id,
+                messages.reference_home(),
+                keyboards.reference_menu(),
+                message_id,
+                callback_text="Справочник",
+            )
         if data == "journal:refresh":
             return self._journal_response(conn, user["id"], chat_id, edit_message_id=message_id)
         if data == "tasks:new":
@@ -694,13 +704,23 @@ class BotApplication:
             plot = garden.get_plot(user["id"], plot_id)
             if plot is None:
                 return BotResponse(chat_id, "Участок не найден.", keyboards.garden_menu())
-            return BotResponse(chat_id, messages.location_task_ideas(plot["name"]), keyboards.reference_menu())
+            return BotResponse(
+                chat_id,
+                messages.location_task_ideas(plot["name"]),
+                keyboards.location_task_ideas_menu("plot", plot_id),
+                message_id,
+            )
         if data.startswith("ref:zone_tasks:"):
             zone_id = int(data.rsplit(":", 1)[1])
             zone = garden.get_zone(user["id"], zone_id)
             if zone is None:
                 return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
-            return BotResponse(chat_id, messages.location_task_ideas(zone["name"]), keyboards.reference_menu())
+            return BotResponse(
+                chat_id,
+                messages.location_task_ideas(zone["name"]),
+                keyboards.location_task_ideas_menu("zone", zone_id),
+                message_id,
+            )
         if data.startswith("ref:"):
             topic = data.rsplit(":", 1)[1]
             return BotResponse(chat_id, messages.reference(topic), keyboards.reference_menu(), message_id)
