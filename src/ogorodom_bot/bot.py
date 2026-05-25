@@ -721,6 +721,11 @@ class BotApplication:
                 keyboards.location_task_ideas_menu("zone", zone_id),
                 message_id,
             )
+        if data.startswith("idea:"):
+            try:
+                return self._start_task_from_idea(conn, user, chat_id, data)
+            except ValueError:
+                return BotResponse(chat_id, "Не удалось создать задачу из подсказки.", keyboards.main_menu())
         if data.startswith("ref:"):
             topic = data.rsplit(":", 1)[1]
             return BotResponse(chat_id, messages.reference(topic), keyboards.reference_menu(), message_id)
@@ -989,7 +994,58 @@ class BotApplication:
             keyboards.cancel_inline(),
         )
 
+    def _start_task_from_idea(self, conn, user: dict, chat_id: int, data: str) -> BotResponse:
+        _, kind, raw_id, code = data.split(":", 3)
+        garden = GardenService(conn)
+        title = messages.task_idea_title(code)
+        payload = {
+            "title": title,
+            "location_locked": True,
+        }
+        if kind == "p":
+            plot = garden.get_plot(user["id"], int(raw_id))
+            if plot is None:
+                raise ValueError("plot not found")
+            payload.update(
+                {
+                    "plot_id": plot["id"],
+                    "zone_id": None,
+                    "location_label": plot["name"],
+                }
+            )
+        elif kind == "z":
+            zone = garden.get_zone(user["id"], int(raw_id))
+            if zone is None:
+                raise ValueError("zone not found")
+            payload.update(
+                {
+                    "plot_id": zone["plot_id"],
+                    "zone_id": zone["id"],
+                    "location_label": (
+                        f"{zone['plot_name']} / {zone['name']}"
+                        if zone.get("plot_name")
+                        else zone["name"]
+                    ),
+                }
+            )
+        else:
+            raise ValueError("unknown idea location")
+        DialogStateService(conn).set(user["id"], "task_wait_due_at", payload)
+        return BotResponse(
+            chat_id,
+            f"Задача: {title}\nМесто: {payload['location_label']}\n\nКогда нужно сделать?",
+            keyboards.task_due_menu(),
+            callback_text="Выберите срок",
+        )
+
     def _task_location_step(self, conn, user: dict, chat_id: int, payload: dict) -> BotResponse:
+        if payload.get("location_locked"):
+            DialogStateService(conn).set(user["id"], "task_wait_confirm", payload)
+            return BotResponse(
+                chat_id,
+                messages.task_confirmation(payload, user["timezone"]),
+                keyboards.task_confirm(),
+            )
         garden = GardenService(conn)
         zones = garden.list_zones(user["id"])
         plots = garden.list_plots(user["id"])

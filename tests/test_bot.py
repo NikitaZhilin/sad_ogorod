@@ -414,9 +414,33 @@ class BotHandlerTests(unittest.TestCase):
         self.assertIn("Возможные задачи", ideas.text)
         self.assertIn("Стрижка травы", ideas.text)
         callbacks = _inline_callbacks(ideas.reply_markup)
+        self.assertIn("idea:p:1:trim", callbacks)
         self.assertIn("plot:details:1", callbacks)
         self.assertIn("menu:reference", callbacks)
         self.assertIn("menu:main", callbacks)
+
+    def test_location_task_idea_button_starts_bound_task_dialog(self) -> None:
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Север"))
+        self.bot.handle_callback(self.callback("zone:add"))
+        self.bot.handle_message(self.message("Газон"))
+        self.bot.handle_callback(self.callback("zone:plot:1"))
+
+        prompt = self.bot.handle_callback(self.callback("idea:z:1:trim"))
+        self.bot.handle_callback(self.callback("task:due:tomorrow_morning"))
+        self.bot.handle_callback(self.callback("task:repeat:none"))
+        confirm = self.bot.handle_callback(self.callback("task:desc:skip"))
+        created = self.bot.handle_callback(self.callback("task:create"))
+
+        self.assertIn("Стрижка травы", prompt.text)
+        self.assertIn("Север / Газон", prompt.text)
+        self.assertIn("Север / Газон", confirm.text)
+        self.assertIn("Стрижка травы", created.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+        self.assertEqual(task["title"], "Стрижка травы")
+        self.assertEqual(task["plot_id"], 1)
+        self.assertEqual(task["zone_id"], 1)
 
     def test_dispatch_falls_back_to_send_when_edit_fails(self) -> None:
         api = FailingEditApi()

@@ -39,6 +39,17 @@ REFERENCE_TEXTS = {
     ),
 }
 
+TASK_IDEA_TITLES = {
+    "water": "Полить",
+    "weed": "Прополоть",
+    "pests": "Проверить вредителей",
+    "treat": "Провести обработку",
+    "feed": "Подкормить",
+    "trim": "Стрижка травы",
+    "mulch": "Замульчировать",
+    "clean": "Убрать сухие листья",
+}
+
 
 def welcome() -> str:
     return (
@@ -178,8 +189,12 @@ def location_task_ideas(name: str) -> str:
         "Стрижка травы\n"
         "Замульчировать\n"
         "Убрать сухие листья\n\n"
-        "Любую из них можно добавить через «Новая задача» и привязать к этой зоне или участку."
+        "Нажмите кнопку ниже, чтобы создать задачу с привязкой к этой зоне или участку."
     )
+
+
+def task_idea_title(code: str) -> str:
+    return TASK_IDEA_TITLES.get(code, "Новая задача")
 
 
 def journal(rows: list[dict]) -> str:
