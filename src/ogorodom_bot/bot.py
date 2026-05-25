@@ -673,11 +673,19 @@ class BotApplication:
             return BotResponse(chat_id, f"Зона #{zone_id} добавлена.", keyboards.main_menu())
         if data == "planting:add":
             dialog.set(user["id"], "planting_wait_type", {})
-            return BotResponse(chat_id, "Выберите тип насаждения.", keyboards.plant_type_menu())
+            return BotResponse(
+                chat_id,
+                "Что добавляем?\n\nОвощи/ягоды - клубника, помидоры, огурцы и другие культуры.",
+                keyboards.plant_type_menu(),
+            )
         if data.startswith("planttype:"):
             plant_type = data.rsplit(":", 1)[1]
             dialog.set(user["id"], "planting_wait_name", {"plant_type": plant_type})
-            return BotResponse(chat_id, "Введите название насаждения.", keyboards.cancel_inline())
+            return BotResponse(
+                chat_id,
+                "Введите понятное название.\n\nНапример: Клубника, Помидоры, Розы у беседки.",
+                keyboards.cancel_inline(),
+            )
         if data.startswith("planting:loc:"):
             dialog_state = dialog.get(user["id"])
             if not dialog_state or dialog_state["state"] != "planting_wait_location":
@@ -970,10 +978,14 @@ class BotApplication:
             )
         if state_name == "planting_wait_name":
             if not text:
-                return BotResponse(chat_id, "Введите название насаждения.", keyboards.cancel_inline())
+                return BotResponse(chat_id, "Введите понятное название насаждения.", keyboards.cancel_inline())
             payload["name"] = text
-            dialog.set(user["id"], "planting_wait_variety", payload)
-            return BotResponse(chat_id, "Введите сорт или '-' если сорта нет.", keyboards.cancel_inline())
+            dialog.set(user["id"], "planting_wait_date", payload)
+            return BotResponse(
+                chat_id,
+                "Введите дату посадки в формате YYYY-MM-DD или '-' если дата неизвестна.",
+                keyboards.cancel_inline(),
+            )
         if state_name == "planting_wait_variety":
             payload["variety"] = None if text == "-" else text
             dialog.set(user["id"], "planting_wait_date", payload)
@@ -1283,8 +1295,13 @@ class BotApplication:
     def _create_planting(self, conn, user_id: int, payload: str) -> str:
         parts = [part.strip() for part in payload.split("|")]
         name = parts[0]
-        variety = parts[1] if len(parts) > 1 and parts[1] else None
-        planted_on = parts[2] if len(parts) > 2 and parts[2] else None
+        variety = None
+        planted_on = None
+        if len(parts) == 2 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[1]):
+            planted_on = parts[1]
+        else:
+            variety = parts[1] if len(parts) > 1 and parts[1] else None
+            planted_on = parts[2] if len(parts) > 2 and parts[2] else None
         planting_id = GardenService(conn).add_planting(
             user_id, name=name, variety=variety, planted_on=planted_on, plant_type="plant"
         )

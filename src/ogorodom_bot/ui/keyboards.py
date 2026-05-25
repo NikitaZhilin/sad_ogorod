@@ -317,8 +317,8 @@ def location_task_ideas_menu(kind: str, item_id: int) -> dict[str, Any]:
 def plant_type_menu() -> dict[str, Any]:
     return inline_keyboard(
         [
-            [("Растение", "planttype:plant"), ("Кустарник", "planttype:shrub")],
-            [("Декоративное", "planttype:ornamental"), ("Дерево", "planttype:tree")],
+            [("Овощи/ягоды", "planttype:plant"), ("Кустарник", "planttype:shrub")],
+            [("Цветы/декор", "planttype:ornamental"), ("Дерево", "planttype:tree")],
             [("Другое", "planttype:other")],
             [("Отмена", "dialog:cancel")],
         ]

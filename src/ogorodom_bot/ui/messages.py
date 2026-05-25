@@ -12,9 +12,9 @@ REPEAT_LABELS = {
 }
 
 PLANT_TYPE_LABELS = {
-    "plant": "растение",
+    "plant": "овощи/ягоды",
     "shrub": "кустарник",
-    "ornamental": "декоративное",
+    "ornamental": "цветы/декор",
     "tree": "дерево",
     "other": "другое",
 }
@@ -181,18 +181,19 @@ def zone_card(zone: dict) -> str:
 
 
 def planting_card(planting: dict) -> str:
-    plant_type = PLANT_TYPE_LABELS.get(planting.get("plant_type"), planting.get("plant_type") or "растение")
+    plant_type = PLANT_TYPE_LABELS.get(planting.get("plant_type"), planting.get("plant_type") or "овощи/ягоды")
     place = _location_value(planting)
-    variety = planting.get("variety") or "не указан"
     planted_on = planting.get("planted_on") or "не указана"
-    return (
+    lines = [
         f"Насаждение #{planting['id']}\n"
         f"{planting['name']}\n\n"
-        f"Тип: {plant_type}\n"
-        f"Место: {place}\n"
-        f"Сорт: {variety}\n"
-        f"Дата посадки: {planted_on}"
-    )
+        f"Категория: {plant_type}",
+        f"Место: {place}",
+    ]
+    if planting.get("variety"):
+        lines.append(f"Сорт: {planting['variety']}")
+    lines.append(f"Дата посадки: {planted_on}")
+    return "\n".join(lines)
 
 
 def planting_location_label(planting: dict) -> str:

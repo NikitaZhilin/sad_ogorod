@@ -42,6 +42,7 @@ Telegram-бот для ведения огородных задач: участ�
 /plots
 /zone название
 /zones
+/planting название [| YYYY-MM-DD]
 /planting название | сорт | YYYY-MM-DD
 /plantings
 /journal
@@ -114,9 +115,9 @@ STARTUP_BACKUP_MIN_INTERVAL_SECONDS=300
 Если `SEND_STARTUP_UPDATE_ON_BOOT=true`, бот при старте отправит всем зарегистрированным пользователям сообщение об обновлении один раз для каждой новой `APP_VERSION`.
 
 ```env
-APP_VERSION=0.7.0-beta
+APP_VERSION=0.7.1-beta
 SEND_STARTUP_UPDATE_ON_BOOT=true
-STARTUP_UPDATE_MESSAGE=Добавлены насаждения с привязкой к участкам и зонам, задачи по насаждениям и открытие меню вместе с сообщением об обновлении.
+STARTUP_UPDATE_MESSAGE=Упрощено добавление насаждений: овощи и ягоды вынесены в отдельную категорию, сорт больше не обязателен в кнопочном диалоге.
 TESTING_NOTICE_ENABLED=true
 TESTING_NOTICE_TEXT=⚠️ Бот находится в бета-тестировании. Данные могут быть изменены или утеряны.
 ```

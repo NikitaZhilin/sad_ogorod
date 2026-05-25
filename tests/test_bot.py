@@ -356,10 +356,9 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_message(self.message("Теплица"))
         self.bot.handle_callback(self.callback("zone:plot:1"))
         self.bot.handle_callback(self.callback("planting:add"))
-        self.bot.handle_callback(self.callback("planttype:plant"))
+        type_prompt = self.bot.handle_callback(self.callback("planttype:plant"))
         self.bot.handle_message(self.message("Томат"))
-        self.bot.handle_message(self.message("Черри"))
-        self.bot.handle_message(self.message("2026-05-25"))
+        date_prompt = self.bot.handle_message(self.message("2026-05-25"))
         self.bot.handle_callback(self.callback("planting:loc:z:1"))
 
         with connect(self.app_state.db_path) as conn:
@@ -372,7 +371,9 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(zones[0]["plot_id"], 1)
         self.assertEqual(plantings[0]["zone_id"], 1)
         self.assertEqual(plantings[0]["plot_id"], 1)
-        self.assertEqual(plantings[0]["variety"], "Черри")
+        self.assertIsNone(plantings[0]["variety"])
+        self.assertIn("Клубника", type_prompt.text)
+        self.assertIn("участок или зону", date_prompt.text)
 
     def test_garden_plot_and_zone_can_be_renamed_and_deleted(self) -> None:
         self.bot.handle_message(self.message("/start"))
@@ -453,7 +454,6 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_callback(self.callback("planting:add"))
         self.bot.handle_callback(self.callback("planttype:ornamental"))
         self.bot.handle_message(self.message("Роза"))
-        self.bot.handle_message(self.message("Флорибунда"))
         self.bot.handle_message(self.message("2026-05-25"))
         created_planting = self.bot.handle_callback(self.callback("planting:loc:z:1"))
         details = self.bot.handle_callback(self.callback("planting:details:1"))
@@ -465,7 +465,8 @@ class BotHandlerTests(unittest.TestCase):
         self.bot.handle_callback(self.callback("task:create"))
 
         self.assertIn("Насаждение #1 добавлено", created_planting.text)
-        self.assertIn("Тип: декоративное", details.text)
+        self.assertIn("Категория: цветы/декор", details.text)
+        self.assertNotIn("Сорт: не указан", details.text)
         self.assertIn("idea:pl:1:treat", _inline_callbacks(ideas.reply_markup))
         self.assertIn("Север / Цветник / Роза", prompt.text)
         self.assertIn("Север / Цветник / Роза", confirm.text)
