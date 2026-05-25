@@ -238,9 +238,12 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(state["state"], "task_wait_due_at")
 
         self.bot.handle_message(self.message("2026-05-25 12:00"))
-        confirm = self.bot.handle_callback(self.callback("task:repeat:weekly"))
+        description_prompt = self.bot.handle_callback(self.callback("task:repeat:weekly"))
+        confirm = self.bot.handle_callback(self.callback("task:desc:skip"))
         created = self.bot.handle_callback(self.callback("task:create"))
 
+        self.assertIn("описание", description_prompt.text)
+        self.assertIn("без привязки", confirm.text)
         self.assertIn("Полить теплицу", confirm.text)
         self.assertIn("25.05.2026 12:00", confirm.text)
         self.assertNotIn("T09:00:00", confirm.text)
@@ -255,13 +258,16 @@ class BotHandlerTests(unittest.TestCase):
         start = self.bot.handle_message(self.message("Новая задача"))
         due_prompt = self.bot.handle_message(self.message("Проверить полив"))
         due = self.bot.handle_callback(self.callback("task:due:tomorrow_morning"))
-        self.bot.handle_callback(self.callback("task:repeat:none"))
+        desc = self.bot.handle_callback(self.callback("task:repeat:none"))
+        confirm = self.bot.handle_callback(self.callback("task:desc:skip"))
         created = self.bot.handle_callback(self.callback("task:create"))
 
         self.assertIn("Новая задача", start.text)
         self.assertIn("Когда нужно сделать", due_prompt.text)
         self.assertIn("task:due:tomorrow_morning", _inline_callbacks(due_prompt.reply_markup))
         self.assertIn("Нужен повтор", due.text)
+        self.assertIn("описание", desc.text)
+        self.assertIn("без привязки", confirm.text)
         self.assertIn("Проверить полив", created.text)
         with connect(self.app_state.db_path) as conn:
             tasks = TaskService(conn).list_open(1)
@@ -275,17 +281,63 @@ class BotHandlerTests(unittest.TestCase):
         edit_menu = self.bot.handle_callback(self.callback("task:edit:1"))
         self.bot.handle_callback(self.callback("task:edit_title:1"))
         renamed = self.bot.handle_message(self.message("Новое название"))
+        self.bot.handle_callback(self.callback("task:edit_desc:1"))
+        described = self.bot.handle_message(self.message("Новое описание"))
         self.bot.handle_callback(self.callback("task:edit_due:1"))
         changed_due = self.bot.handle_callback(self.callback("task:due:none"))
 
         self.assertIn("task:edit:1", _inline_callbacks(details.reply_markup))
         self.assertIn("Что изменить", edit_menu.text)
         self.assertIn("Новое название", renamed.text)
+        self.assertIn("Новое описание", described.text)
         self.assertIn("без срока", changed_due.text)
         with connect(self.app_state.db_path) as conn:
             task = TaskService(conn).get_task(1, 1)
         self.assertEqual(task["title"], "Новое название")
+        self.assertEqual(task["description"], "Новое описание")
         self.assertIsNone(task["due_at"])
+
+    def test_task_creation_can_set_description_and_zone_location(self) -> None:
+        self.bot.handle_message(self.message("/start"))
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Север"))
+        self.bot.handle_callback(self.callback("zone:add"))
+        self.bot.handle_message(self.message("Теплица"))
+        self.bot.handle_callback(self.callback("zone:plot:1"))
+
+        self.bot.handle_message(self.message("Новая задача"))
+        self.bot.handle_message(self.message("Покос травы"))
+        self.bot.handle_callback(self.callback("task:due:tomorrow_evening"))
+        self.bot.handle_callback(self.callback("task:repeat:none"))
+        loc_prompt = self.bot.handle_message(self.message("Скосить дорожки у входа"))
+        confirm = self.bot.handle_callback(self.callback("task:loc:z:1"))
+        created = self.bot.handle_callback(self.callback("task:create"))
+        details = self.bot.handle_callback(self.callback("task:details:1"))
+
+        self.assertIn("Север / Теплица", confirm.text)
+        self.assertIn("Покос травы", created.text)
+        self.assertIn("Теплица", loc_prompt.reply_markup["inline_keyboard"][0][0]["text"])
+        self.assertIn("Место: Север / Теплица", details.text)
+        self.assertIn("Описание: Скосить дорожки у входа", details.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+        self.assertEqual(task["plot_id"], 1)
+        self.assertEqual(task["zone_id"], 1)
+
+    def test_task_location_can_be_edited(self) -> None:
+        self.bot.handle_message(self.message("/start"))
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Север"))
+        self.bot.handle(self.message("/task 2026-05-25 12:00 | Полить"))
+
+        menu = self.bot.handle_callback(self.callback("task:edit_loc:1"))
+        updated = self.bot.handle_callback(self.callback("task:eloc:1:p:1"))
+
+        self.assertIn("Север", menu.reply_markup["inline_keyboard"][0][0]["text"])
+        self.assertIn("Место: Север", updated.text)
+        with connect(self.app_state.db_path) as conn:
+            task = TaskService(conn).get_task(1, 1)
+        self.assertEqual(task["plot_id"], 1)
 
     def test_cancel_clears_dialog_state(self) -> None:
         self.bot.handle_message(self.message("/start"))
@@ -319,6 +371,47 @@ class BotHandlerTests(unittest.TestCase):
         self.assertEqual(zones[0]["plot_id"], 1)
         self.assertEqual(plantings[0]["zone_id"], 1)
         self.assertEqual(plantings[0]["variety"], "Черри")
+
+    def test_garden_plot_and_zone_can_be_renamed_and_deleted(self) -> None:
+        self.bot.handle_message(self.message("/start"))
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Старый участок"))
+        self.bot.handle_callback(self.callback("zone:add"))
+        self.bot.handle_message(self.message("Старая зона"))
+        self.bot.handle_callback(self.callback("zone:plot:1"))
+
+        plot_details = self.bot.handle_callback(self.callback("plot:details:1"))
+        self.bot.handle_callback(self.callback("plot:edit:1"))
+        renamed_plot = self.bot.handle_message(self.message("Новый участок"))
+        zone_details = self.bot.handle_callback(self.callback("zone:details:1"))
+        self.bot.handle_callback(self.callback("zone:edit:1"))
+        renamed_zone = self.bot.handle_message(self.message("Новая зона"))
+        self.bot.handle_callback(self.callback("zone:delete:1"))
+        deleted_zone = self.bot.handle_callback(self.callback("zone:delete_confirm:1"))
+        self.bot.handle_callback(self.callback("plot:delete:1"))
+        deleted_plot = self.bot.handle_callback(self.callback("plot:delete_confirm:1"))
+
+        self.assertIn("plot:edit:1", _inline_callbacks(plot_details.reply_markup))
+        self.assertIn("Новый участок", renamed_plot.text)
+        self.assertIn("zone:edit:1", _inline_callbacks(zone_details.reply_markup))
+        self.assertIn("Новая зона", renamed_zone.text)
+        self.assertIn("Зона удалена", deleted_zone.text)
+        self.assertIn("Участок удален", deleted_plot.text)
+        with connect(self.app_state.db_path) as conn:
+            garden = GardenService(conn)
+            self.assertEqual(garden.list_plots(1), [])
+            self.assertEqual(garden.list_zones(1), [])
+
+    def test_reference_section_and_location_task_ideas(self) -> None:
+        home = self.bot.handle_message(self.message("Справочник"))
+        treatment = self.bot.handle_callback(self.callback("ref:treatment"))
+        self.bot.handle_callback(self.callback("plot:add"))
+        self.bot.handle_message(self.message("Север"))
+        ideas = self.bot.handle_callback(self.callback("ref:plot_tasks:1"))
+
+        self.assertIn("Справочник", home.text)
+        self.assertIn("Обработка", treatment.text)
+        self.assertIn("Возможные задачи", ideas.text)
 
     def test_dispatch_falls_back_to_send_when_edit_fails(self) -> None:
         api = FailingEditApi()

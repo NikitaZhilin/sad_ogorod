@@ -57,6 +57,7 @@ MAIN_BUTTONS = {
     "Задачи",
     "Огород",
     "Журнал",
+    "Справочник",
     "Настройки",
     "Помощь",
 }
@@ -176,6 +177,8 @@ class BotApplication:
                 return BotResponse(message.chat_id, messages.garden_home(), keyboards.garden_menu())
             if text == "Журнал":
                 return self._journal_response(conn, user["id"], message.chat_id)
+            if text == "Справочник":
+                return BotResponse(message.chat_id, messages.reference_home(), keyboards.reference_menu())
             if text == "Настройки":
                 return self._settings_response(conn, user_service, user, message.chat_id)
             if text == "Помощь":
@@ -347,6 +350,23 @@ class BotApplication:
                 "Выберите новый срок или введите дату сообщением.",
                 keyboards.task_due_menu(),
             )
+        if data.startswith("task:edit_desc:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "task_edit_description", {"task_id": task_id})
+            return BotResponse(
+                chat_id,
+                "Введите новое описание задачи. Чтобы очистить описание, отправьте '-'.",
+                keyboards.cancel_inline(),
+            )
+        if data.startswith("task:edit_loc:"):
+            task_id = int(data.rsplit(":", 1)[1])
+            zones = garden.list_zones(user["id"])
+            plots = garden.list_plots(user["id"])
+            return BotResponse(
+                chat_id,
+                "Выберите участок или зону для задачи.",
+                keyboards.edit_task_location_menu(task_id, zones, plots),
+            )
         if data.startswith("task:edit_repeat:"):
             task_id = int(data.rsplit(":", 1)[1])
             return BotResponse(chat_id, "Выберите новый повтор задачи.", keyboards.edit_repeat_menu(task_id), message_id)
@@ -387,10 +407,49 @@ class BotApplication:
             payload["due_at"] = due_at
             if due_at is None:
                 payload["repeat_rule"] = "none"
-                dialog.set(user["id"], "task_wait_confirm", payload)
-                return BotResponse(chat_id, messages.task_confirmation(payload, user["timezone"]), keyboards.task_confirm())
+                dialog.set(user["id"], "task_wait_description", payload)
+                return BotResponse(
+                    chat_id,
+                    "Добавьте описание задачи или пропустите этот шаг.",
+                    keyboards.task_description_menu(),
+                )
             dialog.set(user["id"], "task_wait_repeat", payload)
             return BotResponse(chat_id, "Нужен повтор?", keyboards.repeat_menu())
+        if data == "task:desc:skip":
+            dialog_state = dialog.get(user["id"])
+            if not dialog_state or dialog_state["state"] != "task_wait_description":
+                return BotResponse(chat_id, "Диалог задачи не найден.", keyboards.main_menu())
+            payload = dict(dialog_state["payload"])
+            payload["description"] = None
+            return self._task_location_step(conn, user, chat_id, payload)
+        if data.startswith("task:loc:"):
+            dialog_state = dialog.get(user["id"])
+            if not dialog_state or dialog_state["state"] != "task_wait_location":
+                return BotResponse(chat_id, "Диалог задачи не найден.", keyboards.main_menu())
+            payload = dict(dialog_state["payload"])
+            self._apply_location_payload(conn, user["id"], payload, data)
+            dialog.set(user["id"], "task_wait_confirm", payload)
+            return BotResponse(
+                chat_id,
+                messages.task_confirmation(payload, user["timezone"]),
+                keyboards.task_confirm(),
+            )
+        if data.startswith("task:eloc:"):
+            parts = data.split(":")
+            task_id = int(parts[2])
+            try:
+                plot_id, zone_id = self._parse_location_callback(conn, user["id"], parts[3:])
+                TaskService(conn).update_location(user["id"], task_id, plot_id, zone_id)
+            except ValueError:
+                return BotResponse(chat_id, "Не удалось изменить место задачи.", keyboards.main_menu())
+            task = TaskService(conn).get_task(user["id"], task_id)
+            return BotResponse(
+                chat_id,
+                messages.task_card(task, user["timezone"]) if task else "Место обновлено.",
+                keyboards.task_details(task_id),
+                message_id,
+                callback_text="Место обновлено",
+            )
         if data.startswith("task:done:"):
             task_id = int(data.rsplit(":", 1)[1])
             try:
@@ -455,11 +514,11 @@ class BotApplication:
                 return BotResponse(chat_id, "Диалог создания задачи не найден.", keyboards.main_menu())
             payload = dict(dialog_state["payload"])
             payload["repeat_rule"] = repeat_rule
-            dialog.set(user["id"], "task_wait_confirm", payload)
+            dialog.set(user["id"], "task_wait_description", payload)
             return BotResponse(
                 chat_id,
-                messages.task_confirmation(payload, user["timezone"]),
-                keyboards.task_confirm(),
+                "Добавьте описание задачи или пропустите этот шаг.\n\nНапример: проверить влажность почвы, пролить без удобрений.",
+                keyboards.task_description_menu(),
             )
         if data == "task:create":
             dialog_state = dialog.get(user["id"])
@@ -475,9 +534,12 @@ class BotApplication:
             task_id = service.create_task(
                 user_id=user["id"],
                 title=payload["title"],
+                description=payload.get("description"),
                 due_at=payload.get("due_at"),
                 repeat_rule=payload.get("repeat_rule", "none"),
                 remind_at=remind_at,
+                plot_id=payload.get("plot_id"),
+                zone_id=payload.get("zone_id"),
             )
             dialog.clear(user["id"])
             return BotResponse(
@@ -487,24 +549,96 @@ class BotApplication:
                 callback_text="Задача создана",
             )
         if data == "garden:plots":
+            plots = garden.list_plots(user["id"])
             return BotResponse(
                 chat_id,
-                messages.garden_items("Участки", garden.list_plots(user["id"])),
-                keyboards.garden_list("plots"),
+                messages.garden_items("Участки", plots),
+                keyboards.garden_list("plots", plots),
                 message_id,
             )
         if data == "garden:zones":
+            zones = garden.list_zones(user["id"])
             return BotResponse(
                 chat_id,
-                messages.garden_items("Зоны", garden.list_zones(user["id"])),
-                keyboards.garden_list("zones"),
+                messages.garden_items("Зоны", zones),
+                keyboards.garden_list("zones", zones),
                 message_id,
             )
         if data == "garden:plantings":
+            plantings = garden.list_plantings(user["id"])
             return BotResponse(
                 chat_id,
-                messages.garden_items("Посадки", garden.list_plantings(user["id"])),
+                messages.garden_items("Посадки", plantings),
+                keyboards.garden_list("plantings", plantings),
+                message_id,
+            )
+        if data.startswith("planting:details:"):
+            planting_id = int(data.rsplit(":", 1)[1])
+            planting = next(
+                (row for row in garden.list_plantings(user["id"]) if row["id"] == planting_id),
+                None,
+            )
+            if planting is None:
+                return BotResponse(chat_id, "Посадка не найдена.", keyboards.garden_menu())
+            return BotResponse(
+                chat_id,
+                messages.garden_items("Посадка", [planting]),
                 keyboards.garden_list("plantings"),
+                message_id,
+            )
+        if data.startswith("plot:details:"):
+            plot_id = int(data.rsplit(":", 1)[1])
+            plot = garden.get_plot(user["id"], plot_id)
+            if plot is None:
+                return BotResponse(chat_id, "Участок не найден.", keyboards.garden_menu())
+            return BotResponse(
+                chat_id,
+                messages.plot_card(plot, garden.list_zones(user["id"])),
+                keyboards.plot_details(plot_id),
+                message_id,
+            )
+        if data.startswith("plot:edit:"):
+            plot_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "plot_edit_name", {"plot_id": plot_id})
+            return BotResponse(chat_id, "Введите новое название участка.", keyboards.cancel_inline())
+        if data.startswith("plot:delete_confirm:"):
+            plot_id = int(data.rsplit(":", 1)[1])
+            try:
+                garden.delete_plot(user["id"], plot_id)
+            except ValueError:
+                return BotResponse(chat_id, "Участок не найден.", keyboards.garden_menu())
+            return BotResponse(chat_id, "Участок удален. Зоны и задачи отвязаны от него.", keyboards.garden_menu())
+        if data.startswith("plot:delete:"):
+            plot_id = int(data.rsplit(":", 1)[1])
+            return BotResponse(
+                chat_id,
+                "Удалить участок? Зоны и задачи не удалятся, но потеряют привязку к участку.",
+                keyboards.confirm_delete_plot(plot_id),
+                message_id,
+            )
+        if data.startswith("zone:details:"):
+            zone_id = int(data.rsplit(":", 1)[1])
+            zone = garden.get_zone(user["id"], zone_id)
+            if zone is None:
+                return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
+            return BotResponse(chat_id, messages.zone_card(zone), keyboards.zone_details(zone_id), message_id)
+        if data.startswith("zone:edit:"):
+            zone_id = int(data.rsplit(":", 1)[1])
+            dialog.set(user["id"], "zone_edit_name", {"zone_id": zone_id})
+            return BotResponse(chat_id, "Введите новое название зоны.", keyboards.cancel_inline())
+        if data.startswith("zone:delete_confirm:"):
+            zone_id = int(data.rsplit(":", 1)[1])
+            try:
+                garden.delete_zone(user["id"], zone_id)
+            except ValueError:
+                return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
+            return BotResponse(chat_id, "Зона удалена. Посадки и задачи отвязаны от нее.", keyboards.garden_menu())
+        if data.startswith("zone:delete:"):
+            zone_id = int(data.rsplit(":", 1)[1])
+            return BotResponse(
+                chat_id,
+                "Удалить зону? Посадки и задачи не удалятся, но потеряют привязку к зоне.",
+                keyboards.confirm_delete_zone(zone_id),
                 message_id,
             )
         if data == "plot:add":
@@ -555,6 +689,21 @@ class BotApplication:
         if data == "log:add":
             dialog.set(user["id"], "log_wait_type", {})
             return BotResponse(chat_id, "Выберите тип работы.", keyboards.work_type_menu())
+        if data.startswith("ref:plot_tasks:"):
+            plot_id = int(data.rsplit(":", 1)[1])
+            plot = garden.get_plot(user["id"], plot_id)
+            if plot is None:
+                return BotResponse(chat_id, "Участок не найден.", keyboards.garden_menu())
+            return BotResponse(chat_id, messages.location_task_ideas(plot["name"]), keyboards.reference_menu())
+        if data.startswith("ref:zone_tasks:"):
+            zone_id = int(data.rsplit(":", 1)[1])
+            zone = garden.get_zone(user["id"], zone_id)
+            if zone is None:
+                return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
+            return BotResponse(chat_id, messages.location_task_ideas(zone["name"]), keyboards.reference_menu())
+        if data.startswith("ref:"):
+            topic = data.rsplit(":", 1)[1]
+            return BotResponse(chat_id, messages.reference(topic), keyboards.reference_menu(), message_id)
         if data == "delete:confirm":
             PrivacyService(conn).delete_user_data(user["id"])
             return BotResponse(
@@ -612,6 +761,9 @@ class BotApplication:
             payload["due_at"] = due_at
             dialog.set(user["id"], "task_wait_repeat", payload)
             return BotResponse(chat_id, "Нужен повтор?", keyboards.repeat_menu())
+        if state_name == "task_wait_description":
+            payload["description"] = None if text == "-" else text
+            return self._task_location_step(conn, user, chat_id, payload)
         if state_name == "task_edit_title":
             try:
                 TaskService(conn).update_title(user["id"], int(payload["task_id"]), text)
@@ -639,6 +791,16 @@ class BotApplication:
             return BotResponse(
                 chat_id,
                 messages.task_card(task, user["timezone"]) if task else "Срок обновлен.",
+                keyboards.task_details(int(payload["task_id"])),
+            )
+        if state_name == "task_edit_description":
+            description = None if text == "-" else text
+            TaskService(conn).update_description(user["id"], int(payload["task_id"]), description)
+            dialog.clear(user["id"])
+            task = TaskService(conn).get_task(user["id"], int(payload["task_id"]))
+            return BotResponse(
+                chat_id,
+                messages.task_card(task, user["timezone"]) if task else "Описание обновлено.",
                 keyboards.task_details(int(payload["task_id"])),
             )
         if state_name == "task_wait_snooze_at":
@@ -694,6 +856,18 @@ class BotApplication:
             plot_id = garden.add_plot(user["id"], text)
             dialog.clear(user["id"])
             return BotResponse(chat_id, f"Участок #{plot_id} добавлен.", keyboards.main_menu())
+        if state_name == "plot_edit_name":
+            try:
+                garden.rename_plot(user["id"], int(payload["plot_id"]), text)
+            except ValueError:
+                return BotResponse(chat_id, "Введите непустое название участка.", keyboards.cancel_inline())
+            dialog.clear(user["id"])
+            plot = garden.get_plot(user["id"], int(payload["plot_id"]))
+            return BotResponse(
+                chat_id,
+                messages.plot_card(plot, garden.list_zones(user["id"])) if plot else "Участок обновлен.",
+                keyboards.plot_details(int(payload["plot_id"])),
+            )
         if state_name == "zone_wait_name":
             if not text:
                 return BotResponse(chat_id, "Введите название зоны.", keyboards.cancel_inline())
@@ -704,6 +878,22 @@ class BotApplication:
                 return BotResponse(chat_id, f"Зона #{zone_id} добавлена.", keyboards.main_menu())
             dialog.set(user["id"], "zone_wait_plot", {"name": text})
             return BotResponse(chat_id, "Выберите участок для зоны.", keyboards.choose_plot(plots))
+        if state_name == "zone_edit_name":
+            zone = garden.get_zone(user["id"], int(payload["zone_id"]))
+            if zone is None:
+                dialog.clear(user["id"])
+                return BotResponse(chat_id, "Зона не найдена.", keyboards.garden_menu())
+            try:
+                garden.rename_zone(user["id"], int(payload["zone_id"]), text, zone["plot_id"])
+            except ValueError:
+                return BotResponse(chat_id, "Введите непустое название зоны.", keyboards.cancel_inline())
+            dialog.clear(user["id"])
+            updated = garden.get_zone(user["id"], int(payload["zone_id"]))
+            return BotResponse(
+                chat_id,
+                messages.zone_card(updated) if updated else "Зона обновлена.",
+                keyboards.zone_details(int(payload["zone_id"])),
+            )
         if state_name == "planting_wait_name":
             if not text:
                 return BotResponse(chat_id, "Введите культуру посадки.", keyboards.cancel_inline())
@@ -778,6 +968,63 @@ class BotApplication:
             "Новая задача\n\nНапишите короткое название. Например: Полить теплицу.",
             keyboards.cancel_inline(),
         )
+
+    def _task_location_step(self, conn, user: dict, chat_id: int, payload: dict) -> BotResponse:
+        garden = GardenService(conn)
+        zones = garden.list_zones(user["id"])
+        plots = garden.list_plots(user["id"])
+        if not zones and not plots:
+            payload["plot_id"] = None
+            payload["zone_id"] = None
+            payload["location_label"] = "без привязки"
+            DialogStateService(conn).set(user["id"], "task_wait_confirm", payload)
+            return BotResponse(
+                chat_id,
+                messages.task_confirmation(payload, user["timezone"]),
+                keyboards.task_confirm(),
+            )
+        DialogStateService(conn).set(user["id"], "task_wait_location", payload)
+        return BotResponse(
+            chat_id,
+            "Где нужно выполнить задачу?\n\nВыберите зону или участок. Можно оставить без привязки.",
+            keyboards.task_location_menu(zones, plots),
+        )
+
+    def _parse_location_callback(
+        self, conn, user_id: int, parts: list[str]
+    ) -> tuple[int | None, int | None]:
+        garden = GardenService(conn)
+        if parts[0] == "none":
+            return None, None
+        if parts[0] == "p":
+            plot_id = int(parts[1])
+            if garden.get_plot(user_id, plot_id) is None:
+                raise ValueError("plot not found")
+            return plot_id, None
+        if parts[0] == "z":
+            zone_id = int(parts[1])
+            zone = garden.get_zone(user_id, zone_id)
+            if zone is None:
+                raise ValueError("zone not found")
+            return zone["plot_id"], zone_id
+        raise ValueError("unknown location")
+
+    def _apply_location_payload(self, conn, user_id: int, payload: dict, data: str) -> None:
+        parts = data.split(":")[2:]
+        plot_id, zone_id = self._parse_location_callback(conn, user_id, parts)
+        garden = GardenService(conn)
+        payload["plot_id"] = plot_id
+        payload["zone_id"] = zone_id
+        if zone_id is not None:
+            zone = garden.get_zone(user_id, zone_id)
+            payload["location_label"] = (
+                f"{zone['plot_name']} / {zone['name']}" if zone and zone.get("plot_name") else zone["name"]
+            )
+        elif plot_id is not None:
+            plot = garden.get_plot(user_id, plot_id)
+            payload["location_label"] = plot["name"] if plot else "без привязки"
+        else:
+            payload["location_label"] = "без привязки"
 
     def _today_response(
         self, conn, user: dict, chat_id: int, edit_message_id: int | None = None

@@ -24,8 +24,9 @@ def main_menu() -> dict[str, Any]:
         [
             ["Сегодня", "Новая задача"],
             ["Все задачи", "Огород"],
-            ["Журнал", "Настройки"],
-            ["Помощь", "Отмена"],
+            ["Журнал", "Справочник"],
+            ["Настройки", "Помощь"],
+            ["Отмена"],
         ]
     )
 
@@ -103,6 +104,7 @@ def task_edit_menu(task_id: int) -> dict[str, Any]:
     return inline_keyboard(
         [
             [("Название", f"task:edit_title:{task_id}"), ("Срок", f"task:edit_due:{task_id}")],
+            [("Описание", f"task:edit_desc:{task_id}"), ("Место", f"task:edit_loc:{task_id}")],
             [("Повтор", f"task:edit_repeat:{task_id}")],
             [("К задаче", f"task:details:{task_id}")],
         ]
@@ -118,6 +120,43 @@ def task_due_menu() -> dict[str, Any]:
             [("Отмена", "dialog:cancel")],
         ]
     )
+
+
+def task_description_menu() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Пропустить описание", "task:desc:skip")],
+            [("Отмена", "dialog:cancel")],
+        ]
+    )
+
+
+def task_location_menu(zones: list[dict], plots: list[dict]) -> dict[str, Any]:
+    rows: list[list[tuple[str, str]]] = []
+    for zone in zones:
+        prefix = f"{zone['plot_name']} / " if zone.get("plot_name") else ""
+        rows.append([(f"{prefix}{zone['name']}", f"task:loc:z:{zone['id']}")])
+    if not zones:
+        for plot in plots:
+            rows.append([(plot["name"], f"task:loc:p:{plot['id']}")])
+    rows.append([("Без привязки", "task:loc:none")])
+    rows.append([("Отмена", "dialog:cancel")])
+    return inline_keyboard(rows)
+
+
+def edit_task_location_menu(task_id: int, zones: list[dict], plots: list[dict]) -> dict[str, Any]:
+    base = task_location_menu(zones, plots)["inline_keyboard"]
+    rows: list[list[tuple[str, str]]] = []
+    for row in base:
+        converted = []
+        for button in row:
+            data = button["callback_data"]
+            if data.startswith("task:loc:"):
+                data = data.replace("task:loc:", f"task:eloc:{task_id}:", 1)
+            converted.append((button["text"], data))
+        rows.append(converted)
+    rows[-1] = [("К задаче", f"task:details:{task_id}")]
+    return inline_keyboard(rows)
 
 
 def repeat_menu() -> dict[str, Any]:
@@ -155,16 +194,75 @@ def garden_menu() -> dict[str, Any]:
     )
 
 
-def garden_list(section: str) -> dict[str, Any]:
+def garden_list(section: str, rows_data: list[dict] | None = None) -> dict[str, Any]:
     add_callbacks = {
         "plots": "plot:add",
         "zones": "zone:add",
         "plantings": "planting:add",
     }
-    return inline_keyboard(
+    detail_prefix = {
+        "plots": "plot:details",
+        "zones": "zone:details",
+        "plantings": "planting:details",
+    }
+    rows: list[list[tuple[str, str]]] = []
+    for item in rows_data or []:
+        rows.append([(f"Открыть #{item['id']}", f"{detail_prefix[section]}:{item['id']}")])
+    rows.extend(
         [
             [("Добавить", add_callbacks[section])],
             [("Назад", "menu:garden")],
+        ]
+    )
+    return inline_keyboard(
+        rows
+    )
+
+
+def plot_details(plot_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Переименовать", f"plot:edit:{plot_id}"), ("Удалить", f"plot:delete:{plot_id}")],
+            [("Что сделать здесь", f"ref:plot_tasks:{plot_id}")],
+            [("К участкам", "garden:plots")],
+        ]
+    )
+
+
+def zone_details(zone_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Переименовать", f"zone:edit:{zone_id}"), ("Удалить", f"zone:delete:{zone_id}")],
+            [("Что сделать здесь", f"ref:zone_tasks:{zone_id}")],
+            [("К зонам", "garden:zones")],
+        ]
+    )
+
+
+def confirm_delete_plot(plot_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Да, удалить участок", f"plot:delete_confirm:{plot_id}")],
+            [("Отмена", f"plot:details:{plot_id}")],
+        ]
+    )
+
+
+def confirm_delete_zone(zone_id: int) -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Да, удалить зону", f"zone:delete_confirm:{zone_id}")],
+            [("Отмена", f"zone:details:{zone_id}")],
+        ]
+    )
+
+
+def reference_menu() -> dict[str, Any]:
+    return inline_keyboard(
+        [
+            [("Полив", "ref:watering"), ("Покос", "ref:mowing")],
+            [("Обработка", "ref:treatment"), ("Прополка", "ref:weeding")],
+            [("Подкормка", "ref:fertilizing"), ("Идеи задач", "ref:task_ideas")],
         ]
     )
 

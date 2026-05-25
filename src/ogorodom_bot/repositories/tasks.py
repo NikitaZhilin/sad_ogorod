@@ -4,6 +4,12 @@ from ogorodom_bot.repositories.base import Repository
 
 
 class TaskRepository(Repository):
+    TASK_SELECT = """
+        t.*,
+        p.name AS plot_name,
+        z.name AS zone_name
+    """
+
     def create(
         self,
         user_id: int,
@@ -43,19 +49,38 @@ class TaskRepository(Repository):
 
     def get(self, task_id: int, user_id: int | None = None) -> dict | None:
         if user_id is None:
-            row = self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            row = self.conn.execute(
+                f"""
+                SELECT {self.TASK_SELECT}
+                FROM tasks t
+                LEFT JOIN plots p ON p.id = t.plot_id
+                LEFT JOIN zones z ON z.id = t.zone_id
+                WHERE t.id = ?
+                """,
+                (task_id,),
+            ).fetchone()
         else:
             row = self.conn.execute(
-                "SELECT * FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id)
+                f"""
+                SELECT {self.TASK_SELECT}
+                FROM tasks t
+                LEFT JOIN plots p ON p.id = t.plot_id
+                LEFT JOIN zones z ON z.id = t.zone_id
+                WHERE t.id = ? AND t.user_id = ?
+                """,
+                (task_id, user_id),
             ).fetchone()
         return self._row_to_dict(row)
 
     def list_open(self, user_id: int, limit: int = 20) -> list[dict]:
         rows = self.conn.execute(
             """
-            SELECT * FROM tasks
-            WHERE user_id = ? AND status IN ('open', 'active', 'snoozed')
-            ORDER BY COALESCE(due_at, '9999-12-31T23:59:59'), id
+            SELECT t.*, p.name AS plot_name, z.name AS zone_name
+            FROM tasks t
+            LEFT JOIN plots p ON p.id = t.plot_id
+            LEFT JOIN zones z ON z.id = t.zone_id
+            WHERE t.user_id = ? AND t.status IN ('open', 'active', 'snoozed')
+            ORDER BY COALESCE(t.due_at, '9999-12-31T23:59:59'), t.id
             LIMIT ?
             """,
             (user_id, limit),
@@ -92,12 +117,15 @@ class TaskRepository(Repository):
     def list_today(self, user_id: int, end_iso: str, limit: int = 50) -> list[dict]:
         rows = self.conn.execute(
             """
-            SELECT * FROM tasks
-            WHERE user_id = ?
-              AND status IN ('open', 'active', 'snoozed')
-              AND due_at IS NOT NULL
-              AND due_at <= ?
-            ORDER BY due_at, id
+            SELECT t.*, p.name AS plot_name, z.name AS zone_name
+            FROM tasks t
+            LEFT JOIN plots p ON p.id = t.plot_id
+            LEFT JOIN zones z ON z.id = t.zone_id
+            WHERE t.user_id = ?
+              AND t.status IN ('open', 'active', 'snoozed')
+              AND t.due_at IS NOT NULL
+              AND t.due_at <= ?
+            ORDER BY t.due_at, t.id
             LIMIT ?
             """,
             (user_id, end_iso, limit),
@@ -133,7 +161,12 @@ class TaskRepository(Repository):
         due_at: str | None = None,
         repeat_rule: str | None = None,
         remind_at: str | None = None,
+        description: str | None = None,
+        plot_id: int | None = None,
+        zone_id: int | None = None,
         clear_due: bool = False,
+        set_description: bool = False,
+        set_location: bool = False,
     ) -> None:
         assignments = ["updated_at = CURRENT_TIMESTAMP"]
         values: list[object] = []
@@ -150,6 +183,14 @@ class TaskRepository(Repository):
         if repeat_rule is not None:
             assignments.append("repeat_rule = ?")
             values.append(repeat_rule)
+        if set_description:
+            assignments.append("description = ?")
+            values.append(description)
+        if set_location:
+            assignments.append("plot_id = ?")
+            values.append(plot_id)
+            assignments.append("zone_id = ?")
+            values.append(zone_id)
         values.extend([task_id, user_id])
         self.conn.execute(
             f"""

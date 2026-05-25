@@ -17,6 +17,21 @@ class GardenRepository(Repository):
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_plot(self, user_id: int, plot_id: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM plots WHERE user_id = ? AND id = ?", (user_id, plot_id)
+        ).fetchone()
+        return self._row_to_dict(row)
+
+    def update_plot(self, user_id: int, plot_id: int, name: str) -> None:
+        self.conn.execute(
+            "UPDATE plots SET name = ? WHERE user_id = ? AND id = ?",
+            (name, user_id, plot_id),
+        )
+
+    def delete_plot(self, user_id: int, plot_id: int) -> None:
+        self.conn.execute("DELETE FROM plots WHERE user_id = ? AND id = ?", (user_id, plot_id))
+
     def create_zone(
         self, user_id: int, name: str, plot_id: int | None = None, notes: str | None = None
     ) -> int:
@@ -38,6 +53,27 @@ class GardenRepository(Repository):
             (user_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_zone(self, user_id: int, zone_id: int) -> dict | None:
+        row = self.conn.execute(
+            """
+            SELECT z.*, p.name AS plot_name
+            FROM zones z
+            LEFT JOIN plots p ON p.id = z.plot_id
+            WHERE z.user_id = ? AND z.id = ?
+            """,
+            (user_id, zone_id),
+        ).fetchone()
+        return self._row_to_dict(row)
+
+    def update_zone(self, user_id: int, zone_id: int, name: str, plot_id: int | None) -> None:
+        self.conn.execute(
+            "UPDATE zones SET name = ?, plot_id = ? WHERE user_id = ? AND id = ?",
+            (name, plot_id, user_id, zone_id),
+        )
+
+    def delete_zone(self, user_id: int, zone_id: int) -> None:
+        self.conn.execute("DELETE FROM zones WHERE user_id = ? AND id = ?", (user_id, zone_id))
 
     def create_planting(
         self,

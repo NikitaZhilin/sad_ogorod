@@ -4,6 +4,7 @@ import sqlite3
 from datetime import timedelta
 
 from ogorodom_bot.repositories.tasks import JournalRepository, ReminderRepository, TaskRepository
+from ogorodom_bot.repositories.garden import GardenRepository
 from ogorodom_bot.repositories.users import UserRepository
 from ogorodom_bot.services.time_utils import (
     add_repeat,
@@ -25,6 +26,7 @@ class TaskService:
         self.journal = JournalRepository(conn)
         self.reminders = ReminderRepository(conn)
         self.users = UserRepository(conn)
+        self.garden = GardenRepository(conn)
 
     def create_task(
         self,
@@ -90,6 +92,36 @@ class TaskService:
         )
         note_due = due_at or "без срока"
         self.journal.create(user_id, "task_updated", f"Изменен срок задачи: {task['title']} -> {note_due}", "task", task_id)
+
+    def update_description(self, user_id: int, task_id: int, description: str | None) -> None:
+        task = self.tasks.get(task_id, user_id)
+        if task is None:
+            raise ValueError("task not found")
+        value = description.strip() if description else None
+        self.tasks.update_task(task_id, user_id, description=value, set_description=True)
+        self.journal.create(user_id, "task_updated", f"Изменено описание задачи: {task['title']}", "task", task_id)
+
+    def update_location(
+        self, user_id: int, task_id: int, plot_id: int | None, zone_id: int | None
+    ) -> None:
+        task = self.tasks.get(task_id, user_id)
+        if task is None:
+            raise ValueError("task not found")
+        if zone_id is not None:
+            zone = self.garden.get_zone(user_id, zone_id)
+            if zone is None:
+                raise ValueError("zone not found")
+            plot_id = zone["plot_id"]
+        elif plot_id is not None and self.garden.get_plot(user_id, plot_id) is None:
+            raise ValueError("plot not found")
+        self.tasks.update_task(
+            task_id,
+            user_id,
+            plot_id=plot_id,
+            zone_id=zone_id,
+            set_location=True,
+        )
+        self.journal.create(user_id, "task_updated", f"Изменена привязка задачи: {task['title']}", "task", task_id)
 
     def update_repeat_rule(self, user_id: int, task_id: int, repeat_rule: str) -> None:
         task = self.tasks.get(task_id, user_id)

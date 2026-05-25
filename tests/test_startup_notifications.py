@@ -33,27 +33,27 @@ class StartupNotificationTests(unittest.TestCase):
     def test_build_startup_update_message(self) -> None:
         settings = replace(
             self.app.settings,
-            app_version="2026.05.25-web-login",
+            app_version="0.6.0-beta",
             startup_update_message=(
-                "Добавлен вход в web-версию по ключу из Telegram. "
-                "Улучшены отступы web-интерфейса."
+                "Добавлено редактирование задач, привязка к участкам и зонам, "
+                "а также справочник работ."
             ),
             testing_notice_enabled=True,
             testing_notice_text=(
-                "⚠️ Бот находится в тестировании. Данные могут быть изменены или утеряны."
+                "⚠️ Бот находится в бета-тестировании. Данные могут быть изменены или утеряны."
             ),
         )
 
         message = build_startup_update_message(settings)
 
-        self.assertIn("Бот обновлен до версии 2026.05.25-web-login", message)
-        self.assertIn("Добавлен вход", message)
-        self.assertIn("Бот находится в тестировании", message)
+        self.assertIn("Бот обновлен до версии 0.6.0-beta", message)
+        self.assertIn("Добавлено редактирование задач", message)
+        self.assertIn("бета-тестировании", message)
 
     def test_startup_notification_sent_once_per_version(self) -> None:
         settings = replace(
             self.app.settings,
-            app_version="2026.05.25-test",
+            app_version="0.6.0-beta",
             send_startup_update_on_boot=True,
             startup_update_message="Добавлено уведомление об обновлении.",
             testing_notice_enabled=True,
@@ -67,7 +67,7 @@ class StartupNotificationTests(unittest.TestCase):
         self.assertEqual(first["sent"], 1)
         self.assertEqual(second["sent"], 0)
         self.assertEqual(len(api.sent), 1)
-        self.assertIn("2026.05.25-test", api.sent[0][1])
+        self.assertIn("0.6.0-beta", api.sent[0][1])
 
 
 if __name__ == "__main__":
